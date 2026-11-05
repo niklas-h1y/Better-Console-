@@ -2,7 +2,10 @@ const $ = id => document.getElementById(id);
 const entries = [], requests = [];
 let activeLevel = "all", preserve = true, storeType = "localStorage", selectedRequest = null;
 const port = chrome.runtime.connect({ name: "better-console-panel" });
-port.postMessage({ type: "attach", tabId: chrome.devtools.inspectedWindow.tabId });\naddConsole("info", ["Better Console panel connected. Waiting for page instrumentation…"]);\nlet pageHookSeen = false;\nsetTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page-hook handshake received. Reload the extension at chrome://extensions, refresh this website, and reopen DevTools. Restricted pages (chrome://, Web Store, extension pages) cannot be inspected."]); }, 1800);
+port.postMessage({ type: "attach", tabId: chrome.devtools.inspectedWindow.tabId });
+addConsole("info", ["Better Console panel connected. Waiting for page instrumentation…"]);
+let pageHookSeen = false;
+setTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page-hook handshake received. Reload the extension at chrome://extensions, refresh this website, and reopen DevTools. Restricted pages (chrome://, Web Store, extension pages) cannot be inspected."]); }, 1800);
 const fmt = v => typeof v === "string" ? v : JSON.stringify(v, null, 2) ?? String(v);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function evaluate(code, cb) { chrome.devtools.inspectedWindow.eval(code, (result, exception) => cb(exception && exception.isException ? {error: exception.description || "Evaluation failed"} : result)); }

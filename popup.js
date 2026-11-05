@@ -54,7 +54,40 @@ $("pause").onclick=e=>{paused=!paused;e.currentTarget.setAttribute("aria-pressed
 $("filter").oninput=renderConsole;
 document.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>{activeLevel=b.dataset.level;document.querySelectorAll("[data-level]").forEach(x=>x.classList.toggle("active",x===b));renderConsole();});
 $("command").onsubmit=e=>{e.preventDefault();const code=$("expression").value.trim();if(!code)return;addConsole("debug",["> "+code]);evaluate(code,r=>addConsole(r&&r.error?"error":"result",[r]));$("expression").value="";};
-document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab,.view").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("view-"+b.dataset.tab).classList.add("active");if(b.dataset.tab==="storage")refreshStorage();if(b.dataset.tab==="info")refreshInfo();});
+function activateTab(name) {
+  const selectedView = $("view-" + name);
+  if (!selectedView) {
+    addConsole("error", ["Tab target not found: view-" + name]);
+    return false;
+  }
+  document.querySelectorAll(".tab[data-tab]").forEach(tab => {
+    const selected = tab.dataset.tab === name;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", selected ? "true" : "false");
+    tab.setAttribute("tabindex", selected ? "0" : "-1");
+  });
+  document.querySelectorAll(".view[id^='view-']").forEach(view => {
+    const selected = view === selectedView;
+    view.classList.toggle("active", selected);
+    view.hidden = !selected;
+    // Inline display is intentional: it avoids a stale/unsupported CSS class
+    // state in embedded Android browser webviews.
+    view.style.display = selected ? "flex" : "none";
+  });
+  if (name === "storage") refreshStorage();
+  if (name === "info") refreshInfo();
+  return true;
+}
+document.querySelectorAll(".tab[data-tab]").forEach(tab => {
+  tab.type = "button";
+  tab.setAttribute("role", "tab");
+  tab.setAttribute("aria-controls", "view-" + tab.dataset.tab);
+  tab.addEventListener("click", event => {
+    event.preventDefault();
+    activateTab(tab.dataset.tab);
+  });
+});
+activateTab("console");
 function renderNetwork(){ $("network-count").textContent=requests.length;$("network-total").textContent=requests.length+" requests";const q=$("network-filter").value.toLowerCase();$("network-rows").replaceChildren();requests.filter(r=>(r.url||"").toLowerCase().includes(q)||(r.method||"").toLowerCase().includes(q)).forEach(r=>{const tr=document.createElement("tr");tr.innerHTML="<td>"+esc(r.method||"")+"</td><td>"+esc(r.status||"—")+"</td><td>"+esc(r.type||"")+"</td><td>"+esc(r.url||"")+"</td><td>"+esc((r.duration||0)+" ms")+"</td>";tr.onclick=()=>{$("network-detail").textContent=JSON.stringify(r,null,2);};$("network-rows").append(tr);});}
 $("network-filter").oninput=renderNetwork;$("network-clear").onclick=()=>{requests.length=0;renderNetwork();$("network-detail").textContent="Select a request to inspect its details.";};
 $("inspect-selector").onclick=()=>{const s=$("selector").value;evaluate("(()=>{try{return [...document.querySelectorAll("+JSON.stringify(s)+")].slice(0,100).map((e,i)=>({index:i,tag:e.tagName,id:e.id,classes:e.className,text:(e.innerText||e.textContent||'').slice(0,500),html:e.outerHTML.slice(0,2000),rect:(()=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()}))}catch(e){return {error:e.message}}})()",r=>$("element-result").textContent=JSON.stringify(r,null,2));};
@@ -119,28 +152,6 @@ document.querySelectorAll("button").forEach(button => {
     };
   }
 });
-
-// Capture tab taps at document level. This works even when the visible label
-// (or its count badge) is the actual touch target.
-document.addEventListener("click", event => {
-  const tab = event.target.closest && event.target.closest(".tab[data-tab]");
-  if (!tab) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  const view = $("view-" + tab.dataset.tab);
-  if (!view) {
-    addConsole("error", ["Unknown tab: " + tab.dataset.tab]);
-    return;
-  }
-  document.querySelectorAll(".tab").forEach(item => {
-    const selected = item === tab;
-    item.classList.toggle("active", selected);
-    item.setAttribute("aria-selected", String(selected));
-  });
-  document.querySelectorAll(".view").forEach(item => item.classList.toggle("active", item === view));
-  if (tab.dataset.tab === "storage") refreshStorage();
-  if (tab.dataset.tab === "info") refreshInfo();
-}, true);
 
 window.addEventListener("error", event => {
   try { addConsole("error", ["Console UI error", event.message || "Unknown UI error", event.filename || "", event.lineno || ""]); } catch (_) {}

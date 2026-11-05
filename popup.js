@@ -1,23 +1,69 @@
-const title = document.getElementById("page-title");
-const status = document.getElementById("page-status");
-const dot = document.querySelector(".status-dot");
-
-chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-  if (!tab) {
-    title.textContent = "No active tab";
-    status.textContent = "Open a webpage, then open this popup again.";
+const $ = id => document.getElementById(id);
+const entries = [], requests = [];
+let activeLevel = "all", preserve = true, storeType = "localStorage", selectedRequest = null;
+let activeTabId = null;
+const pendingEvaluations = new Map();
+const port = chrome.runtime.connect({ name: "better-console-panel" });
+chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+  const tab = tabs && tabs[0];
+  if (!tab || !Number.isInteger(tab.id)) {
+    addConsole("error", ["Could not determine the active tab."]);
     return;
   }
-
-  title.textContent = tab.title || "Current tab";
-  const url = tab.url || "";
-
-  if (/^(chrome|edge|about|devtools|chrome-extension):\/\//i.test(url) ||
-      url.startsWith("https://chrome.google.com/webstore")) {
-    status.textContent = "This browser page cannot be inspected by extensions.";
-    dot.style.background = "#e66b75";
-  } else {
-    status.textContent = "Ready to inspect. Open DevTools and choose Better Console.";
-    dot.style.background = "#69d7a8";
-  }
+  activeTabId = tab.id;
+  port.postMessage({ type: "attach", tabId: activeTabId });
+  addConsole("info", ["Mobile console attached. If no page events appear, refresh the website and reopen this popup."]);
 });
+addConsole("info", ["Better Console panel connected. Waiting for page instrumentation…"]);
+let pageHookSeen = false;
+setTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page instrumentation handshake yet. Refresh the website, then close and reopen this popup. Browser internal pages and extension store pages cannot be inspected."]); }, 1800);
+const fmt = v => typeof v === "string" ? v : JSON.stringify(v, null, 2) ?? String(v);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function evaluate(code, cb) {
+  if (!Number.isInteger(activeTabId)) { cb({error:"No active tab is connected."}); return; }
+  const id = "bc-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+  pendingEvaluations.set(id, cb);
+  try {
+    chrome.tabs.sendMessage(activeTabId, {type:"better-console-eval", id, code}, () => {
+      if (chrome.runtime.lastError) {
+        pendingEvaluations.delete(id);
+        cb({error:"Cannot reach this page. Refresh the webpage, then reopen Better Console. " + chrome.runtime.lastError.message});
+      }
+    });
+  } catch (error) {
+    pendingEvaluations.delete(id);
+    cb({error:String(error)});
+  }
+}
+function addConsole(level,args,time=Date.now()) { entries.push({level,args,time}); if(entries.length>5000) entries.shift(); renderConsole(); }
+function renderConsole() {
+ const q=$("filter").value.toLowerCase();
+ const list=entries.filter(e=>(activeLevel==="all"||e.level===activeLevel||(activeLevel==="info"&&["info","log","debug"].includes(e.level)))&&fmt(e.args).toLowerCase().includes(q));
+ $("count").textContent=list.length+" messages"; $("output").replaceChildren();
+ if(!list.length){const d=document.createElement("div");d.className="empty";d.textContent=entries.length?"No messages match this filter.":"Waiting for page activity…";$("output").append(d);return;}
+ list.forEach(e=>{const row=document.createElement("div");row.className="row "+e.level;const t=document.createElement("span");t.className="time";t.textContent=new Date(e.time).toLocaleTimeString();const b=document.createElement("span");b.className="badge";b.textContent=e.level;const p=document.createElement("pre");p.className="payload";p.textContent=e.args.map(fmt).join(" ");row.append(t,b,p);$("output").append(row);});$("output").scrollTop=$("output").scrollHeight;
+}
+port.onMessage.addListener(e=>{if(!e)return;if(e.kind==="eval-result"){const cb=pendingEvaluations.get(e.id);if(cb){pendingEvaluations.delete(e.id);cb(e.error?{error:e.error}:e.result);}return;}if(e.kind==="status"){pageHookSeen=true;addConsole("info",e.args||["Page instrumentation connected"],e.time);return;}if(e.kind==="network"){requests.push(e);renderNetwork();}else if(e.kind==="console"){if(e.level==="clear")entries.length=0;else addConsole(e.level,e.args,e.time);}});
+$("clear").onclick=()=>{entries.length=0;renderConsole();};
+$("preserve").onclick=e=>{preserve=!preserve;e.currentTarget.setAttribute("aria-pressed",String(preserve));};
+$("filter").oninput=renderConsole;
+document.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>{activeLevel=b.dataset.level;document.querySelectorAll("[data-level]").forEach(x=>x.classList.toggle("active",x===b));renderConsole();});
+$("command").onsubmit=e=>{e.preventDefault();const code=$("expression").value.trim();if(!code)return;addConsole("debug",["> "+code]);evaluate(code,r=>addConsole(r&&r.error?"error":"result",[r]));$("expression").value="";};
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab,.view").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("view-"+b.dataset.tab).classList.add("active");if(b.dataset.tab==="storage")refreshStorage();if(b.dataset.tab==="info")refreshInfo();});
+function renderNetwork(){ $("network-count").textContent=requests.length;$("network-total").textContent=requests.length+" requests";const q=$("network-filter").value.toLowerCase();$("network-rows").replaceChildren();requests.filter(r=>(r.url||"").toLowerCase().includes(q)||(r.method||"").toLowerCase().includes(q)).forEach(r=>{const tr=document.createElement("tr");tr.innerHTML="<td>"+esc(r.method||"")+"</td><td>"+esc(r.status||"—")+"</td><td>"+esc(r.type||"")+"</td><td>"+esc(r.url||"")+"</td><td>"+esc((r.duration||0)+" ms")+"</td>";tr.onclick=()=>{$("network-detail").textContent=JSON.stringify(r,null,2);};$("network-rows").append(tr);});}
+$("network-filter").oninput=renderNetwork;$("network-clear").onclick=()=>{requests.length=0;renderNetwork();$("network-detail").textContent="Select a request to inspect its details.";};
+$("inspect-selector").onclick=()=>{const s=$("selector").value;evaluate("(()=>{try{return [...document.querySelectorAll("+JSON.stringify(s)+")].slice(0,100).map((e,i)=>({index:i,tag:e.tagName,id:e.id,classes:e.className,text:(e.innerText||e.textContent||'').slice(0,500),html:e.outerHTML.slice(0,2000),rect:(()=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()}))}catch(e){return {error:e.message}}})()",r=>$("element-result").textContent=JSON.stringify(r,null,2));};
+$("highlight").onclick=()=>evaluate("(()=>{document.querySelectorAll('[data-bc-highlight]').forEach(e=>{e.style.outline=e.dataset.bcOldOutline||'';delete e.dataset.bcHighlight;delete e.dataset.bcOldOutline});try{const e=document.querySelector("+JSON.stringify($("selector").value)+");if(!e)return 'No match';e.dataset.bcOldOutline=e.style.outline;e.dataset.bcHighlight='1';e.style.outline='3px solid #ff4d8d';return e.tagName+' highlighted'}catch(e){return e.message}})()",r=>addConsole("info",[r]));
+document.querySelectorAll("[data-store]").forEach(b=>b.onclick=()=>{storeType=b.dataset.store;document.querySelectorAll("[data-store]").forEach(x=>x.classList.toggle("active",x===b));refreshStorage();});
+function refreshStorage(){evaluate("(()=>{const t="+JSON.stringify(storeType)+";if(t==='cookies')return document.cookie.split(';').filter(Boolean).map(x=>{const i=x.indexOf('=');return {key:x.slice(0,i).trim(),value:x.slice(i+1).trim()}});const s=window[t];return Object.keys(s).map(key=>({key,value:s.getItem(key)}))})()",r=>{const root=$("storage-rows");root.replaceChildren();if(r&&r.error){root.textContent=r.error;return;} (r||[]).forEach(item=>{const row=document.createElement("div");row.className="storage-row";const k=document.createElement("code");k.textContent=item.key;const v=document.createElement("span");v.textContent=item.value;const del=document.createElement("button");del.textContent="Delete";del.onclick=()=>evaluate(storeType==="cookies"?"document.cookie="+JSON.stringify(item.key+"=; Max-Age=0; path=/"):"window["+JSON.stringify(storeType)+"].removeItem("+JSON.stringify(item.key)+")",refreshStorage);row.append(k,v,del);root.append(row);});});}
+$("storage-refresh").onclick=refreshStorage;$("storage-save").onclick=()=>{const k=$("storage-key").value,v=$("storage-value").value;if(!k)return;const code=storeType==="cookies"?"document.cookie="+JSON.stringify(k+"="+v+"; path=/; SameSite=Lax"):"window["+JSON.stringify(storeType)+"].setItem("+JSON.stringify(k)+","+JSON.stringify(v)+")";evaluate(code,refreshStorage);};
+function refreshInfo(){evaluate("(()=>({url:location.href,title:document.title,origin:location.origin,referrer:document.referrer,readyState:document.readyState,userAgent:navigator.userAgent,language:navigator.language,languages:navigator.languages,platform:navigator.platform,online:navigator.onLine,cookieEnabled:navigator.cookieEnabled,screen:{width:screen.width,height:screen.height,depth:screen.colorDepth},viewport:{width:innerWidth,height:innerHeight,devicePixelRatio},memory:navigator.deviceMemory||'unknown',cores:navigator.hardwareConcurrency||'unknown',connection:navigator.connection?{effectiveType:navigator.connection.effectiveType,downlink:navigator.connection.downlink}:null,performance:{load:Math.round(performance.now()),resources:performance.getEntriesByType('resource').length}}))()",r=>$("info-result").textContent=JSON.stringify(r,null,2));}
+$("info-refresh").onclick=refreshInfo;
+const snippetsKey="betterConsoleSnippets";
+function loadSnippets(){chrome.storage.local.get([snippetsKey],o=>{const list=$( "snippet-list");list.replaceChildren(new Option("Saved snippets…",""));(o[snippetsKey]||[]).forEach((s,i)=>list.add(new Option(s.name,i)));});}
+$("snippet-save").onclick=()=>{const name=$("snippet-name").value.trim(),code=$("snippet-code").value;if(!name||!code)return;chrome.storage.local.get([snippetsKey],o=>{const a=o[snippetsKey]||[];a.push({name,code});chrome.storage.local.set({[snippetsKey]:a},loadSnippets);});};
+$("snippet-list").onchange=e=>{chrome.storage.local.get([snippetsKey],o=>{const s=(o[snippetsKey]||[])[Number(e.target.value)];if(s){$("snippet-name").value=s.name;$("snippet-code").value=s.code;}});};
+$("snippet-run").onclick=()=>evaluate($("snippet-code").value,r=>addConsole(r&&r.error?"error":"result",[r]));
+$("snippet-delete").onclick=()=>{const i=Number($("snippet-list").value);if(!Number.isInteger(i)||$("snippet-list").value==="")return;chrome.storage.local.get([snippetsKey],o=>{const a=o[snippetsKey]||[];a.splice(i,1);chrome.storage.local.set({[snippetsKey]:a},loadSnippets);});};
+
+loadSnippets();

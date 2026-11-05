@@ -47,7 +47,22 @@
     // commands, but it must send an acknowledgement: some Android Chromium
     // builds report "message port closed" when a listener sends no response.
     if (window !== window.top) return false;
-    if (message.type === "better-console-toggle-overlay") openOverlay(message.tabId);
+    if (message.type === "better-console-toggle-overlay") {
+      openOverlay(message.tabId);
+      try { sendResponse({ ok: true }); } catch (_) {}
+      return false;
+    }
+    if (message.type === "better-console-export-html") {
+      try {
+        const root = document.documentElement.cloneNode(true);
+        root.querySelectorAll("#better-console-overlay-host").forEach(node => node.remove());
+        const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) + "\\n" : "";
+        sendResponse({ ok: true, html: doctype + root.outerHTML, title: document.title || "page" });
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error && error.message || error) });
+      }
+      return false;
+    }
     if (message.type === "better-console-eval") {
       window.postMessage({ source: "better-console-extension", action: "eval", id: message.id, code: message.code }, "*");
     }

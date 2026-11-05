@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const entries = [], requests = [];
-let activeLevel = "all", preserve = true, storeType = "localStorage", selectedRequest = null;
+let activeLevel = "all", paused = false, storeType = "localStorage", selectedRequest = null;
 let activeTabId = null;
 const pendingEvaluations = new Map();
 const port = chrome.runtime.connect({ name: "better-console-panel" });
@@ -35,7 +35,7 @@ function evaluate(code, cb) {
     cb({error:String(error)});
   }
 }
-function addConsole(level,args,time=Date.now()) { entries.push({level,args,time}); if(entries.length>5000) entries.shift(); renderConsole(); }
+function addConsole(level,args,time=Date.now()) { if(paused)return; entries.push({level,args,time}); if(entries.length>5000) entries.shift(); renderConsole(); }
 function renderConsole() {
  const q=$("filter").value.toLowerCase();
  const list=entries.filter(e=>(activeLevel==="all"||e.level===activeLevel||(activeLevel==="info"&&["info","log","debug"].includes(e.level)))&&fmt(e.args).toLowerCase().includes(q));
@@ -45,7 +45,7 @@ function renderConsole() {
 }
 port.onMessage.addListener(e=>{if(!e)return;if(e.kind==="eval-result"){const cb=pendingEvaluations.get(e.id);if(cb){pendingEvaluations.delete(e.id);cb(e.error?{error:e.error}:e.result);}return;}if(e.kind==="status"){pageHookSeen=true;addConsole("info",e.args||["Page instrumentation connected"],e.time);return;}if(e.kind==="network"){requests.push(e);renderNetwork();}else if(e.kind==="console"){if(e.level==="clear")entries.length=0;else addConsole(e.level,e.args,e.time);}});
 $("clear").onclick=()=>{entries.length=0;renderConsole();};
-$("preserve").onclick=e=>{preserve=!preserve;e.currentTarget.setAttribute("aria-pressed",String(preserve));};
+$("pause").onclick=e=>{paused=!paused;e.currentTarget.setAttribute("aria-pressed",String(paused));e.currentTarget.textContent=paused?"Resume":"Pause";};
 $("filter").oninput=renderConsole;
 document.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>{activeLevel=b.dataset.level;document.querySelectorAll("[data-level]").forEach(x=>x.classList.toggle("active",x===b));renderConsole();});
 $("command").onsubmit=e=>{e.preventDefault();const code=$("expression").value.trim();if(!code)return;addConsole("debug",["> "+code]);evaluate(code,r=>addConsole(r&&r.error?"error":"result",[r]));$("expression").value="";};
@@ -67,3 +67,31 @@ $("snippet-run").onclick=()=>evaluate($("snippet-code").value,r=>addConsole(r&&r
 $("snippet-delete").onclick=()=>{const i=Number($("snippet-list").value);if(!Number.isInteger(i)||$("snippet-list").value==="")return;chrome.storage.local.get([snippetsKey],o=>{const a=o[snippetsKey]||[];a.splice(i,1);chrome.storage.local.set({[snippetsKey]:a},loadSnippets);});};
 
 loadSnippets();
+
+// Advanced utilities and previously missing toolbar actions.
+function downloadText(filename, text, type="application/json") {
+  const blob=new Blob([text],{type}), url=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+async function copyText(value) {
+  try { await navigator.clipboard.writeText(String(value)); addConsole("info",["Copied to clipboard."]); }
+  catch (_) { const t=document.createElement("textarea");t.value=String(value);document.body.append(t);t.select();try{document.execCommand("copy");addConsole("info",["Copied to clipboard."]);}catch(e){addConsole("error",["Clipboard copy failed",String(e)]);}t.remove(); }
+}
+$("console-export").onclick=()=>downloadText("better-console-log-"+Date.now()+".json",JSON.stringify(entries,null,2));
+$("network-export").onclick=()=>downloadText("better-console-network-"+Date.now()+".har",JSON.stringify({log:{version:"1.2",creator:{name:"Better Console",version:"3.1"},entries:requests.map(r=>({startedDateTime:new Date(r.time||Date.now()).toISOString(),time:r.duration||0,request:{method:r.method||"GET",url:r.url||"",headers:r.requestHeaders||[]},response:{status:r.status||0,statusText:r.statusText||"",headers:r.responseHeaders||[],content:{size:r.responseSize||0,mimeType:r.mimeType||""}},_type:r.type||"",_error:r.error||null}))}},null,2),"application/json");
+$("storage-export").onclick=()=>evaluate("(()=>{const t="+JSON.stringify(storeType)+";if(t==='cookies')return {type:t,items:document.cookie};const s=window[t];return {type:t,items:Object.fromEntries(Object.keys(s).map(k=>[k,s.getItem(k)]))}})()",r=>downloadText("better-console-"+storeType+".json",JSON.stringify(r,null,2)));
+$("info-copy").onclick=()=>copyText($("info-result").textContent);
+function selectedElementAction(action) {
+ const selector=JSON.stringify($("selector").value||"body");
+ const scripts={
+  hide:"(()=>{const e=document.querySelector("+selector+");if(!e)return 'No matching element';e.dataset.bcPreviousDisplay=e.style.display;e.style.display='none';return 'Element hidden (refresh page to restore)'})()",
+  text:"(()=>{const e=document.querySelector("+selector+");if(!e)return 'No matching element';const v=prompt('New text content:',e.innerText||e.textContent||'');if(v===null)return 'Cancelled';e.textContent=v;return 'Text updated'})()",
+  copy:"(()=>{const e=document.querySelector("+selector+");if(!e)return null;let s=e.tagName.toLowerCase();if(e.id)return s+'#'+CSS.escape(e.id);if(e.classList.length)s+='.'+[...e.classList].map(CSS.escape).join('.');return s})()",
+  tree:"(()=>{const root=document.querySelector("+selector+");if(!root)return 'No matching element';const walk=(e,d)=>({tag:e.tagName.toLowerCase(),id:e.id||undefined,classes:typeof e.className==='string'?e.className:undefined,attributes:[...e.attributes].slice(0,30).map(a=>[a.name,a.value]),children:d<5?[...e.children].slice(0,80).map(c=>walk(c,d+1)):('[depth limit]')});return walk(root,0)})()"
+ };
+ evaluate(scripts[action],r=>{if(action==="copy"&&r&&!r.error)copyText(r);else $("element-result").textContent=JSON.stringify(r,null,2);});
+}
+$("element-hide").onclick=()=>selectedElementAction("hide");
+$("element-text").onclick=()=>selectedElementAction("text");
+$("element-copy").onclick=()=>selectedElementAction("copy");
+$("element-tree").onclick=()=>selectedElementAction("tree");

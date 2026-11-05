@@ -16,7 +16,18 @@ else chrome.tabs.query({ active: true, currentWindow: true }, tabs => attachToTa
 addConsole("info", ["Better Console attached to this webpage."]);
 let pageHookSeen = false;
 setTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page instrumentation handshake yet. Refresh this webpage and reopen the console."]); }, 1800);
-const fmt = v => typeof v === "string" ? v : JSON.stringify(v, null, 2) ?? String(v);
+const fmt = v => {
+  if (typeof v === "string") return v;
+  try {
+    const json = JSON.stringify(v, null, 2);
+    return json === undefined ? String(v) : json;
+  } catch (error) {
+    // Page console arguments can contain circular objects, BigInt, or proxies.
+    // Formatting must never be able to break the entire console renderer.
+    try { return String(v) + " [unserializable: " + String(error && error.message || error) + "]"; }
+    catch (_) { return "[unserializable value]"; }
+  }
+};
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function evaluate(code, cb) {
   if (!Number.isInteger(activeTabId)) { cb({error:"No active tab is connected."}); return; }
@@ -42,7 +53,11 @@ function evaluate(code, cb) {
 function addConsole(level,args,time=Date.now()) { if(paused)return; entries.push({level,args,time}); if(entries.length>5000) entries.shift(); renderConsole(); }
 function renderConsole() {
  const q=$("filter").value.toLowerCase();
- const list=entries.filter(e=>(activeLevel==="all"||e.level===activeLevel||(activeLevel==="info"&&["info","log","debug"].includes(e.level)))&&fmt(e.args).toLowerCase().includes(q));
+ const list=entries.filter(e=>{
+   const levelMatch=activeLevel==="all"||e.level===activeLevel||(activeLevel==="info"&&["info","log","debug"].includes(e.level));
+   const argsText=fmt(Array.isArray(e.args)?e.args:[e.args]);
+   return levelMatch && argsText.toLowerCase().includes(q);
+ });
  $("count").textContent=list.length+" messages"; $("output").replaceChildren();
  if(!list.length){const d=document.createElement("div");d.className="empty";d.textContent=entries.length?"No messages match this filter.":"Waiting for page activity…";$("output").append(d);return;}
  list.forEach(e=>{const row=document.createElement("div");row.className="row "+e.level;const t=document.createElement("span");t.className="time";t.textContent=new Date(e.time).toLocaleTimeString();const b=document.createElement("span");b.className="badge";b.textContent=e.level;const p=document.createElement("pre");p.className="payload";p.textContent=e.args.map(fmt).join(" ");row.append(t,b,p);$("output").append(row);});$("output").scrollTop=$("output").scrollHeight;

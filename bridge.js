@@ -42,7 +42,10 @@
     console[method] = function (...args) {
       if (method === "assert" && args[0]) return original.apply(this, args);
       if (method === "groupEnd" || method === "clear") send("console", { level: method, args: [] });
-      else send("console", { level: method, args: args.map(v => safe(v)) });
+      else send("console", { level: method, args: args.map(v => {
+        try { return safe(v); }
+        catch (_) { return "[Unserializable console argument]"; }
+      }) });
       // Some mobile WebView console implementations require the real
       // console object as the receiver. Never let instrumentation break the
       // page's own logging if a browser-specific console method throws.

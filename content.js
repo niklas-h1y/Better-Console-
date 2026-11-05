@@ -57,100 +57,228 @@
         try {
           const root = document.documentElement.cloneNode(true);
           root.querySelectorAll("#better-console-overlay-host").forEach(node => node.remove());
-
-          // The exported file is opened from file://, so relative navigation
-          // links would otherwise resolve against the local export location.
-          // Set the original page's effective base URL so links keep navigating
-          // to the website they came from.
-          const originalBase = root.querySelector("base");
-          const originalTarget = originalBase && originalBase.getAttribute("target");
-          root.querySelectorAll("base").forEach(node => node.remove());
-          const exportBase = document.createElement("base");
-          exportBase.href = document.baseURI;
-          if (originalTarget) exportBase.target = originalTarget;
-          const exportHead = root.querySelector("head");
-          if (exportHead) exportHead.prepend(exportBase);
-
           const warnings = [];
-          let stylesheetsInlined = 0, scriptsInlined = 0, jsonCaptured = 0;
+          const stats = { stylesheetsInlined: 0, scriptsInlined: 0, assetsEmbedded: 0, jsonCaptured: 0, framesCaptured: 0, bytesEmbedded: 0, warnings };
+          const MAX_RESOURCE = 3 * 1024 * 1024;
+          const MAX_TOTAL = 24 * 1024 * 1024;
           const absolute = value => { try { return new URL(value, document.baseURI).href; } catch (_) { return ""; } };
-          const fetchText = async url => {
+          const bytesToBase64 = bytes => {
+            let binary = "";
+            const chunk = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+            return btoa(binary);
+          };
+          const fetchAsset = async (url, asText) => {
+            if (!url || /^(data:|blob:|javascript:|mailto:|tel:|#)/i.test(url)) return null;
             const response = await fetch(url, { credentials: "include", cache: "no-store" });
             if (!response.ok) throw new Error("HTTP " + response.status);
-            return response.text();
+            const blob = await response.blob();
+            if (blob.size > MAX_RESOURCE) throw new Error("Resource exceeds 3 MB export limit");
+            if (stats.bytesEmbedded + blob.size > MAX_TOTAL) throw new Error("Total embedded resource limit reached");
+            stats.bytesEmbedded += blob.size;
+            if (asText) return await blob.text();
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            const mime = blob.type || response.headers.get("content-type") || "application/octet-stream";
+            return "data:" + mime + ";base64," + bytesToBase64(bytes);
           };
+          const rewriteCss = async (css, baseUrl, depth) => {
+            if (depth > 3) return css;
+            // Resolve and inline CSS @import rules before rewriting url() assets.
+            const importPattern = /@import\s+(?:url\(\s*)?(['"])([^'"]+)\1\s*\)?\s*([^;]*);/gi;
+            let match, imports = [];
+            while ((match = importPattern.exec(css)) !== null) imports.push({ full: match[0], url: match[2], media: match[3] });
+            for (const item of imports) {
+              const url = absoluteFrom(item.url, baseUrl);
+              try {
+                const imported = await fetchAsset(url, true);
+                if (imported !== null) {
+                  const rewritten = await rewriteCss(imported, url, depth + 1);
+                  css = css.replace(item.full, item.media ? "@media " + item.media + "{" + rewritten + "}" : rewritten);
+                  stats.stylesheetsInlined++;
+                }
+              } catch (error) { warnings.push("CSS import not embedded: " + url + " (" + String(error.message || error) + ")"); }
+            }
+            const urlPattern = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
+            let urls = [], m;
+            while ((m = urlPattern.exec(css)) !== null) {
+              const raw = m[2].trim();
+              if (raw && !/^(data:|blob:|#)/i.test(raw)) urls.push({ full: m[0], raw });
+            }
+            for (const item of urls) {
+              const url = absoluteFrom(item.raw, baseUrl);
+              try {
+                const dataUrl = await fetchAsset(url, false);
+                if (dataUrl) { css = css.replace(item.full, "url('" + dataUrl + "')"); stats.assetsEmbedded++; }
+              } catch (error) { warnings.push("CSS asset not embedded: " + url + " (" + String(error.message || error) + ")"); }
+            }
+            return css;
+          };
+          const absoluteFrom = (value, base) => { try { return new URL(value, base).href; } catch (_) { return ""; } };
 
-          // Inline linked stylesheets so the saved document does not depend on
-          // the original site's CSS URLs. Keep media/title attributes.
+          // Preserve the original URL as the base for navigation and any resources
+          // that cannot be embedded.
+          const oldBase = root.querySelector("base");
+          const target = oldBase && oldBase.getAttribute("target");
+          root.querySelectorAll("base").forEach(node => node.remove());
+          const baseNode = document.createElement("base");
+          baseNode.href = document.baseURI;
+          if (target) baseNode.target = target;
+          root.querySelector("head")?.prepend(baseNode);
+
+          // Mirror current live form state into the cloned markup.
+          const liveControls = Array.from(document.querySelectorAll("input,textarea,select"));
+          const clonedControls = Array.from(root.querySelectorAll("input,textarea,select"));
+          liveControls.forEach((live, i) => {
+            const clone = clonedControls[i];
+            if (!clone) return;
+            if (live instanceof HTMLInputElement) {
+              if (live.type === "checkbox" || live.type === "radio") clone.toggleAttribute("checked", live.checked);
+              else clone.setAttribute("value", live.value);
+            } else if (live instanceof HTMLTextAreaElement) clone.textContent = live.value;
+            else if (live instanceof HTMLSelectElement) {
+              Array.from(clone.options).forEach((option, j) => option.toggleAttribute("selected", !!live.options[j]?.selected));
+            }
+          });
+          // Capture canvas pixels as images when the browser allows it.
+          const liveCanvases = Array.from(document.querySelectorAll("canvas"));
+          const cloneCanvases = Array.from(root.querySelectorAll("canvas"));
+          liveCanvases.forEach((canvas, i) => {
+            try {
+              const image = document.createElement("img");
+              image.src = canvas.toDataURL("image/png");
+              image.setAttribute("data-better-console-canvas-snapshot", "true");
+              if (cloneCanvases[i]) cloneCanvases[i].replaceWith(image);
+            } catch (_) { warnings.push("A canvas could not be captured (possibly cross-origin content)."); }
+          });
+          // Include accessible same-origin frame markup as srcdoc.
+          const liveFrames = Array.from(document.querySelectorAll("iframe"));
+          const cloneFrames = Array.from(root.querySelectorAll("iframe"));
+          liveFrames.forEach((frame, i) => {
+            try {
+              const frameDoc = frame.contentDocument;
+              if (!frameDoc || !cloneFrames[i]) return;
+              const dt = frameDoc.doctype ? new XMLSerializer().serializeToString(frameDoc.doctype) + "\n" : "";
+              cloneFrames[i].setAttribute("srcdoc", dt + frameDoc.documentElement.outerHTML);
+              cloneFrames[i].removeAttribute("src");
+              stats.framesCaptured++;
+            } catch (_) { warnings.push("A cross-origin iframe could not be captured."); }
+          });
+
+          // Inline stylesheets and recursively embed CSS imports/background assets.
           for (const link of Array.from(root.querySelectorAll('link[rel~="stylesheet"][href]'))) {
-            const url = absolute(link.getAttribute("href"));
+            const url = absoluteFrom(link.getAttribute("href"), document.baseURI);
             try {
-              const css = await fetchText(url);
-              const style = document.createElement("style");
-              for (const attr of ["media", "title"]) if (link.hasAttribute(attr)) style.setAttribute(attr, link.getAttribute(attr));
-              style.textContent = css;
-              link.replaceWith(style);
-              stylesheetsInlined++;
-            } catch (error) {
-              warnings.push("Stylesheet not embedded: " + url + " (" + String(error.message || error) + ")");
-            }
+              const css = await fetchAsset(url, true);
+              if (css !== null) {
+                const style = document.createElement("style");
+                for (const attr of ["media", "title"]) if (link.hasAttribute(attr)) style.setAttribute(attr, link.getAttribute(attr));
+                style.textContent = await rewriteCss(css, url, 0);
+                link.replaceWith(style);
+                stats.stylesheetsInlined++;
+              }
+            } catch (error) { warnings.push("Stylesheet not embedded: " + url + " (" + String(error.message || error) + ")"); }
+          }
+          // Rewrite inline style attributes and style blocks too.
+          for (const style of Array.from(root.querySelectorAll("style"))) {
+            style.textContent = await rewriteCss(style.textContent || "", document.baseURI, 0);
+          }
+          for (const element of Array.from(root.querySelectorAll("[style]"))) {
+            element.setAttribute("style", await rewriteCss(element.getAttribute("style") || "", document.baseURI, 0));
           }
 
-          // Inline classic and module script files. Removing async/defer keeps
-          // execution in document order in the exported copy.
+          // Embed images, icons, media, posters and other common URL-bearing assets.
+          const assetAttrs = [
+            ["img", "src"], ["source", "src"], ["video", "poster"], ["audio", "src"],
+            ["track", "src"], ["input[type=image]", "src"], ['link[rel~="icon"]', "href"],
+            ['link[rel="preload"][as="image"]', "href"]
+          ];
+          for (const [selector, attr] of assetAttrs) {
+            for (const element of Array.from(root.querySelectorAll(selector + "[" + attr + "]"))) {
+              const original = element.getAttribute(attr);
+              const url = absoluteFrom(original, document.baseURI);
+              try {
+                const dataUrl = await fetchAsset(url, false);
+                if (dataUrl) { element.setAttribute(attr, dataUrl); stats.assetsEmbedded++; }
+              } catch (error) { warnings.push("Asset not embedded: " + url + " (" + String(error.message || error) + ")"); }
+            }
+          }
+          // Capture srcset candidates individually.
+          for (const element of Array.from(root.querySelectorAll("[srcset]"))) {
+            const candidates = (element.getAttribute("srcset") || "").split(",").map(s => s.trim()).filter(Boolean);
+            const rewritten = [];
+            for (const candidate of candidates) {
+              const parts = candidate.split(/\s+/), url = absoluteFrom(parts.shift(), document.baseURI);
+              try {
+                const dataUrl = await fetchAsset(url, false);
+                rewritten.push((dataUrl || url) + (parts.length ? " " + parts.join(" ") : ""));
+                if (dataUrl) stats.assetsEmbedded++;
+              } catch (error) { rewritten.push(url); warnings.push("Responsive image not embedded: " + url); }
+            }
+            element.setAttribute("srcset", rewritten.join(", "));
+          }
+
+          // Inline external scripts. Module imports may still require their original
+          // URL tree, so failures are reported rather than silently discarded.
           for (const script of Array.from(root.querySelectorAll("script[src]"))) {
-            const url = absolute(script.getAttribute("src"));
+            const url = absoluteFrom(script.getAttribute("src"), document.baseURI);
             try {
-              const source = await fetchText(url);
-              script.removeAttribute("src");
-              script.removeAttribute("integrity");
-              script.removeAttribute("crossorigin");
-              script.removeAttribute("referrerpolicy");
-              script.removeAttribute("async");
-              script.removeAttribute("defer");
-              script.textContent = source;
-              scriptsInlined++;
-            } catch (error) {
-              warnings.push("Script not embedded: " + url + " (" + String(error.message || error) + ")");
-            }
+              const source = await fetchAsset(url, true);
+              if (source !== null) {
+                script.removeAttribute("src"); script.removeAttribute("integrity");
+                script.removeAttribute("crossorigin"); script.removeAttribute("referrerpolicy");
+                script.removeAttribute("async"); script.removeAttribute("defer");
+                script.textContent = source; stats.scriptsInlined++;
+              }
+            } catch (error) { warnings.push("Script not embedded: " + url + " (" + String(error.message || error) + ")"); }
           }
 
-          // Capture JSON resources already requested by the page as inert data
-          // blocks. These preserve the data in the file without executing it.
-          const jsonUrls = new Set();
+          // Capture JSON-like resources already loaded, even when the URL lacks
+          // a .json suffix, based on Resource Timing and response content type.
+          const resourceUrls = new Set();
           for (const entry of performance.getEntriesByType("resource")) {
-            if (!entry.name || !/^https?:/i.test(entry.name)) continue;
-            if (/\.json(?:[?#]|$)/i.test(entry.name)) jsonUrls.add(entry.name);
+            if (entry.name && /^https?:/i.test(entry.name)) resourceUrls.add(entry.name);
           }
-          for (const url of jsonUrls) {
+          for (const url of resourceUrls) {
+            if (stats.jsonCaptured >= 100) break;
             try {
               const response = await fetch(url, { credentials: "include", cache: "no-store" });
-              if (!response.ok) throw new Error("HTTP " + response.status);
+              if (!response.ok) continue;
               const type = response.headers.get("content-type") || "";
-              if (type && !/json|text\/plain/i.test(type)) continue;
+              if (!/json/i.test(type) && !/\.json(?:[?#]|$)/i.test(url)) continue;
               const data = await response.text();
+              if (data.length > 2 * 1024 * 1024) { warnings.push("JSON response skipped (>2 MB): " + url); continue; }
               const block = document.createElement("script");
               block.type = "application/json";
               block.setAttribute("data-better-console-source", url);
-              block.textContent = data;
+              block.textContent = data.replace(/</g, "\\u003c");
               root.querySelector("body")?.appendChild(block);
-              jsonCaptured++;
-            } catch (error) {
-              warnings.push("JSON resource not captured: " + url + " (" + String(error.message || error) + ")");
-            }
+              stats.jsonCaptured++;
+            } catch (_) { /* Resource may be cross-origin or no longer available. */ }
           }
 
-          // A saved copy should not retain a policy meta tag that blocks the
-          // inlined styles/scripts we just embedded. This only changes the
-          // exported file, never the live page.
+          // Add an inert diagnostic archive to the same HTML file.
+          const archive = {
+            capturedAt: new Date().toISOString(),
+            page: { url: location.href, baseURI: document.baseURI, title: document.title, referrer: document.referrer, language: document.documentElement.lang },
+            viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY, devicePixelRatio },
+            forms: liveControls.map((el, index) => ({ index, tag: el.tagName.toLowerCase(), type: el.type || "", name: el.name || "", id: el.id || "", value: el.value, checked: "checked" in el ? el.checked : undefined })),
+            storage: {},
+            cookies: document.cookie,
+            resources: Array.from(performance.getEntriesByType("resource")).map(entry => ({ name: entry.name, type: entry.initiatorType, duration: entry.duration, size: entry.transferSize || 0 })).slice(0, 2000)
+          };
+          try { archive.storage.localStorage = Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])); } catch (_) { archive.storage.localStorage = "[unavailable]"; }
+          try { archive.storage.sessionStorage = Object.fromEntries(Object.keys(sessionStorage).map(key => [key, sessionStorage.getItem(key)])); } catch (_) { archive.storage.sessionStorage = "[unavailable]"; }
+          const dataBlock = document.createElement("script");
+          dataBlock.type = "application/json";
+          dataBlock.id = "better-console-archive-data";
+          dataBlock.textContent = JSON.stringify(archive).replace(/</g, "\\u003c");
+          root.querySelector("body")?.appendChild(dataBlock);
+
+          // Keep the exported copy renderable when embedded inline resources
+          // would otherwise be blocked by the original site's CSP meta policy.
           root.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]').forEach(node => node.remove());
           const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) + "\n" : "";
-          sendResponse({
-            ok: true,
-            html: doctype + root.outerHTML,
-            title: document.title || "page",
-            stats: { stylesheetsInlined, scriptsInlined, jsonCaptured, warnings }
-          });
+          sendResponse({ ok: true, html: doctype + root.outerHTML, title: document.title || "page", stats });
         } catch (error) {
           sendResponse({ ok: false, error: String(error && error.message || error) });
         }

@@ -46,7 +46,7 @@
       return original.apply(this, args);
     };
   });
-  send("status", { args: ["Page instrumentation connected"] });
+  setTimeout(() => send("status", { args: ["Page instrumentation connected"] }), 100);
   window.addEventListener("error", e => send("console", { level: "error", args: [e.message || "Script error", e.filename, e.lineno + ":" + e.colno] }));
   window.addEventListener("unhandledrejection", e => send("console", { level: "error", args: ["Unhandled promise rejection", safe(e.reason)] }));
   const originalFetch = window.fetch;

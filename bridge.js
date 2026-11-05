@@ -23,6 +23,16 @@
     catch (_) { return String(value); }
     return out;
   };
+  window.addEventListener("message", event => {
+    const data = event.data;
+    if (event.source !== window || !data || data.source !== "better-console-extension" || data.action !== "eval") return;
+    try {
+      const result = (0, eval)(String(data.code || ""));
+      send("eval-result", { id: data.id, result: safe(result) });
+    } catch (error) {
+      send("eval-result", { id: data.id, error: error && (error.stack || error.message) || String(error) });
+    }
+  });
   const methods = ["log", "info", "warn", "error", "debug", "table", "dir", "trace", "assert", "group", "groupCollapsed", "groupEnd", "count", "time", "timeEnd", "timeLog", "clear"];
   const originals = {};
   methods.forEach(method => {
@@ -36,6 +46,7 @@
       return original.apply(this, args);
     };
   });
+  send("status", { args: ["Page instrumentation connected"] });
   window.addEventListener("error", e => send("console", { level: "error", args: [e.message || "Script error", e.filename, e.lineno + ":" + e.colno] }));
   window.addEventListener("unhandledrejection", e => send("console", { level: "error", args: ["Unhandled promise rejection", safe(e.reason)] }));
   const originalFetch = window.fetch;

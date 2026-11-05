@@ -74,7 +74,7 @@
               const css = await fetchText(url);
               const style = document.createElement("style");
               for (const attr of ["media", "title"]) if (link.hasAttribute(attr)) style.setAttribute(attr, link.getAttribute(attr));
-              style.textContent = "/* Inlined from " + url.replace(/\\*\\//g, "") + " */\\n" + css;
+              style.textContent = css;
               link.replaceWith(style);
               stylesheetsInlined++;
             } catch (error) {
@@ -94,7 +94,7 @@
               script.removeAttribute("referrerpolicy");
               script.removeAttribute("async");
               script.removeAttribute("defer");
-              script.textContent = "\\n/* Inlined from " + url.replace(/\\*\\//g, "") + " */\\n" + source + "\\n";
+              script.textContent = source;
               scriptsInlined++;
             } catch (error) {
               warnings.push("Script not embedded: " + url + " (" + String(error.message || error) + ")");
@@ -106,14 +106,14 @@
           const jsonUrls = new Set();
           for (const entry of performance.getEntriesByType("resource")) {
             if (!entry.name || !/^https?:/i.test(entry.name)) continue;
-            if (/\\.json(?:[?#]|$)/i.test(entry.name)) jsonUrls.add(entry.name);
+            if (/\.json(?:[?#]|$)/i.test(entry.name)) jsonUrls.add(entry.name);
           }
           for (const url of jsonUrls) {
             try {
               const response = await fetch(url, { credentials: "include", cache: "no-store" });
               if (!response.ok) throw new Error("HTTP " + response.status);
               const type = response.headers.get("content-type") || "";
-              if (type && !/json|text\\/plain/i.test(type)) continue;
+              if (type && !/json|text\/plain/i.test(type)) continue;
               const data = await response.text();
               const block = document.createElement("script");
               block.type = "application/json";
@@ -130,7 +130,7 @@
           // inlined styles/scripts we just embedded. This only changes the
           // exported file, never the live page.
           root.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]').forEach(node => node.remove());
-          const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) + "\\n" : "";
+          const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) + "\n" : "";
           sendResponse({
             ok: true,
             html: doctype + root.outerHTML,

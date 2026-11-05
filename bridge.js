@@ -54,21 +54,28 @@
     const started = performance.now(), input = args[0], url = typeof input === "string" ? input : input && input.url;
     try {
       const response = await originalFetch.apply(this, args);
-      send("network", { method: (args[1] && args[1].method) || (input && input.method) || "GET", url: String(url || ""), status: response.status, ok: response.ok, duration: Math.round(performance.now() - started), type: "fetch" });
+      let requestHeaders = [];
+      try { const h = new Headers((args[1] && args[1].headers) || (input && input.headers) || {}); h.forEach((v,k)=>requestHeaders.push({name:k,value:v})); } catch (_) {}
+      const responseHeaders = []; try { response.headers.forEach((v,k)=>responseHeaders.push({name:k,value:v})); } catch (_) {}
+      send("network", { method: (args[1] && args[1].method) || (input && input.method) || "GET", url: String(url || ""), status: response.status, statusText: response.statusText, ok: response.ok, duration: Math.round(performance.now() - started), type: "fetch", requestHeaders, responseHeaders, mimeType: response.headers.get("content-type") || "", responseSize: Number(response.headers.get("content-length")) || 0 });
       return response;
     } catch (error) {
-      send("network", { method: (args[1] && args[1].method) || "GET", url: String(url || ""), status: 0, error: String(error), duration: Math.round(performance.now() - started), type: "fetch" });
+      send("network", { method: (args[1] && args[1].method) || "GET", url: String(url || ""), status: 0, error: String(error), duration: Math.round(performance.now() - started), type: "fetch", requestHeaders: [] });
       throw error;
     }
   };
   const XHR = window.XMLHttpRequest;
   if (XHR) {
-    const open = XHR.prototype.open, sendXhr = XHR.prototype.send;
-    XHR.prototype.open = function (method, url, ...rest) { this.__bcMeta = { method, url, started: 0 }; return open.call(this, method, url, ...rest); };
+    const open = XHR.prototype.open, sendXhr = XHR.prototype.send, setHeader = XHR.prototype.setRequestHeader;
+    XHR.prototype.open = function (method, url, ...rest) { this.__bcMeta = { method, url, started: 0, requestHeaders: [] }; return open.call(this, method, url, ...rest); };
+    XHR.prototype.setRequestHeader = function(name,value) { if(this.__bcMeta)this.__bcMeta.requestHeaders.push({name:String(name),value:String(value)}); return setHeader.call(this,name,value); };
     XHR.prototype.send = function (...args) {
       if (this.__bcMeta) {
         this.__bcMeta.started = performance.now();
-        this.addEventListener("loadend", () => send("network", { ...this.__bcMeta, status: this.status, duration: Math.round(performance.now() - this.__bcMeta.started), type: "xhr" }), { once: true });
+        this.addEventListener("loadend", () => {
+          const responseHeaders=[];try{this.getAllResponseHeaders().trim().split(/[\\r\\n]+/).forEach(line=>{const i=line.indexOf(":");if(i>0)responseHeaders.push({name:line.slice(0,i).trim(),value:line.slice(i+1).trim()});});}catch(_){}
+          send("network", { ...this.__bcMeta, status:this.status, statusText:this.statusText, duration:Math.round(performance.now()-this.__bcMeta.started), type:"xhr", responseHeaders, mimeType:this.getResponseHeader("content-type")||"" });
+        }, { once: true });
       }
       return sendXhr.apply(this, args);
     };

@@ -2,7 +2,7 @@ const $ = id => document.getElementById(id);
 const entries = [], requests = [];
 let activeLevel = "all", preserve = true, storeType = "localStorage", selectedRequest = null;
 const port = chrome.runtime.connect({ name: "better-console-panel" });
-port.postMessage({ type: "attach", tabId: chrome.devtools.inspectedWindow.tabId });
+port.postMessage({ type: "attach", tabId: chrome.devtools.inspectedWindow.tabId });\naddConsole("info", ["Better Console panel connected. Waiting for page instrumentation…"]);\nlet pageHookSeen = false;\nsetTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page-hook handshake received. Reload the extension at chrome://extensions, refresh this website, and reopen DevTools. Restricted pages (chrome://, Web Store, extension pages) cannot be inspected."]); }, 1800);
 const fmt = v => typeof v === "string" ? v : JSON.stringify(v, null, 2) ?? String(v);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function evaluate(code, cb) { chrome.devtools.inspectedWindow.eval(code, (result, exception) => cb(exception && exception.isException ? {error: exception.description || "Evaluation failed"} : result)); }
@@ -14,7 +14,7 @@ function renderConsole() {
  if(!list.length){const d=document.createElement("div");d.className="empty";d.textContent=entries.length?"No messages match this filter.":"Waiting for page activity…";$("output").append(d);return;}
  list.forEach(e=>{const row=document.createElement("div");row.className="row "+e.level;const t=document.createElement("span");t.className="time";t.textContent=new Date(e.time).toLocaleTimeString();const b=document.createElement("span");b.className="badge";b.textContent=e.level;const p=document.createElement("pre");p.className="payload";p.textContent=e.args.map(fmt).join(" ");row.append(t,b,p);$("output").append(row);});$("output").scrollTop=$("output").scrollHeight;
 }
-port.onMessage.addListener(e=>{if(!e)return;if(e.kind==="network"){requests.push(e);renderNetwork();}else if(e.kind==="console"){if(e.level==="clear")entries.length=0;else addConsole(e.level,e.args,e.time);}});
+port.onMessage.addListener(e=>{if(!e)return;if(e.kind==="status"){pageHookSeen=true;addConsole("info",e.args||["Page instrumentation connected"],e.time);return;}if(e.kind==="network"){requests.push(e);renderNetwork();}else if(e.kind==="console"){if(e.level==="clear")entries.length=0;else addConsole(e.level,e.args,e.time);}});
 $("clear").onclick=()=>{entries.length=0;renderConsole();};
 $("preserve").onclick=e=>{preserve=!preserve;e.currentTarget.setAttribute("aria-pressed",String(preserve));};
 $("filter").oninput=renderConsole;

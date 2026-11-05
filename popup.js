@@ -11,11 +11,7 @@ function attachToTab(tabId) {
   port.postMessage({ type: "attach", tabId: activeTabId });
   addConsole("info", ["Page console connected."]);
 }
-if (Number.isInteger(requestedTabId) && requestedTabId > 0) attachToTab(requestedTabId);
-else chrome.tabs.query({ active: true, currentWindow: true }, tabs => attachToTab(tabs && tabs[0] && tabs[0].id));
-addConsole("info", ["Better Console attached to this webpage."]);
 let pageHookSeen = false;
-setTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page instrumentation handshake yet. Refresh this webpage and reopen the console."]); }, 1800);
 const fmt = v => {
   if (typeof v === "string") return v;
   try {
@@ -28,6 +24,16 @@ const fmt = v => {
     catch (_) { return "[unserializable value]"; }
   }
 };
+
+// Start connecting only after fmt has been initialized. attachToTab() logs a
+// message immediately, which invokes renderConsole() and therefore fmt().
+if (Number.isInteger(requestedTabId) && requestedTabId > 0) attachToTab(requestedTabId);
+else chrome.tabs.query({ active: true, currentWindow: true }, tabs => attachToTab(tabs && tabs[0] && tabs[0].id));
+addConsole("info", ["Better Console attached to this webpage."]);
+setTimeout(() => {
+  if (!pageHookSeen) addConsole("warn", ["No page instrumentation handshake yet. Refresh this webpage and reopen the console."]);
+}, 1800);
+
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function evaluate(code, cb) {
   if (!Number.isInteger(activeTabId)) { cb({error:"No active tab is connected."}); return; }
@@ -79,7 +85,7 @@ function renderConsole() {
    const t=document.createElement("span");t.className="time";t.textContent=new Date(e.time||Date.now()).toLocaleTimeString();
    const b=document.createElement("span");b.className="badge";b.textContent=String(e.level||"log");
    const p=document.createElement("pre");p.className="payload";
-   p.textContent=getArgs(e).map(formatSafely).join(" ");
+   p.textContent=getArgs(e).map(value=>formatSafely(value)).join(" ");
    row.append(t,b,p);output.append(row);
  });
  output.scrollTop=output.scrollHeight;

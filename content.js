@@ -57,6 +57,20 @@
         try {
           const root = document.documentElement.cloneNode(true);
           root.querySelectorAll("#better-console-overlay-host").forEach(node => node.remove());
+
+          // The exported file is opened from file://, so relative navigation
+          // links would otherwise resolve against the local export location.
+          // Set the original page's effective base URL so links keep navigating
+          // to the website they came from.
+          const originalBase = root.querySelector("base");
+          const originalTarget = originalBase && originalBase.getAttribute("target");
+          root.querySelectorAll("base").forEach(node => node.remove());
+          const exportBase = document.createElement("base");
+          exportBase.href = document.baseURI;
+          if (originalTarget) exportBase.target = originalTarget;
+          const exportHead = root.querySelector("head");
+          if (exportHead) exportHead.prepend(exportBase);
+
           const warnings = [];
           let stylesheetsInlined = 0, scriptsInlined = 0, jsonCaptured = 0;
           const absolute = value => { try { return new URL(value, document.baseURI).href; } catch (_) { return ""; } };

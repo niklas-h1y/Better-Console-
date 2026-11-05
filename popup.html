@@ -1,32 +1,12 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Better Console</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><link rel="stylesheet" href="panel.css"><title>Better Console</title></head>
 <body>
-  <main class="popup">
-    <header>
-      <div class="mark">&gt;_</div>
-      <div><h1>Better Console</h1><p class="subtitle">Page debugging toolbox</p></div>
-      <span class="badge">v2</span>
-    </header>
-    <section class="status-card">
-      <span class="status-dot"></span>
-      <div><strong id="page-title">Checking current tab…</strong><p id="page-status">Checking whether this page can be inspected.</p></div>
-    </section>
-    <section class="steps">
-      <h2>Open the console</h2>
-      <ol>
-        <li>Open Developer Tools with <kbd>F12</kbd> or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd>.</li>
-        <li>Select the <strong>Better Console</strong> tab in DevTools.</li>
-        <li>Refresh the webpage to capture its console output from the start.</li>
-      </ol>
-    </section>
-    <p class="hint">The console lives in DevTools; the toolbar popup is this quick-start panel.</p>
-  </main>
-  <script src="popup.js"></script>
-</body>
-</html>
+<header class="topbar"><div class="brand"><span class="mark">⌘</span>Better Console <span class="version">PRO TOOLKIT</span></div><div class="actions"><button id="clear">Clear</button><button id="preserve" aria-pressed="true">Preserve</button></div></header>
+<nav class="tabs"><button class="tab active" data-tab="console">Console</button><button class="tab" data-tab="network">Network <i id="network-count">0</i></button><button class="tab" data-tab="elements">Elements</button><button class="tab" data-tab="storage">Storage</button><button class="tab" data-tab="info">Info</button><button class="tab" data-tab="snippets">Snippets</button></nav>
+<section id="view-console" class="view active"><div class="toolbar"><input id="filter" type="search" placeholder="Filter messages…"><div class="levels"><button data-level="all" class="active">All</button><button data-level="error">Errors</button><button data-level="warn">Warnings</button><button data-level="info">Info</button></div><span id="count">0 messages</span></div><main id="output"><div class="empty">Waiting for page activity…</div></main><form id="command"><span class="prompt">›</span><input id="expression" spellcheck="false" placeholder="Evaluate JavaScript…"><button>Run</button></form></section>
+<section id="view-network" class="view"><div class="toolbar"><input id="network-filter" placeholder="Filter URL or method"><button id="network-clear">Clear</button><span id="network-total"></span></div><div class="table-wrap"><table><thead><tr><th>Method</th><th>Status</th><th>Type</th><th>URL</th><th>Time</th></tr></thead><tbody id="network-rows"></tbody></table></div><pre id="network-detail" class="detail">Select a request to inspect its details.</pre></section>
+<section id="view-elements" class="view"><div class="toolbar"><input id="selector" value="body" placeholder="CSS selector"><button id="inspect-selector">Inspect</button><button id="highlight">Highlight</button></div><pre id="element-result" class="detail">Enter a CSS selector to inspect matching elements.</pre></section>
+<section id="view-storage" class="view"><div class="toolbar"><button data-store="localStorage" class="active">Local Storage</button><button data-store="sessionStorage">Session Storage</button><button data-store="cookies">Cookies</button><button id="storage-refresh">Refresh</button></div><div class="storage-add"><input id="storage-key" placeholder="Key / cookie name"><input id="storage-value" placeholder="Value"><button id="storage-save">Save</button></div><div id="storage-rows"></div></section>
+<section id="view-info" class="view"><div class="toolbar"><button id="info-refresh">Refresh page info</button></div><pre id="info-result" class="detail">Loading page information…</pre></section>
+<section id="view-snippets" class="view"><div class="toolbar"><input id="snippet-name" placeholder="Snippet name"><button id="snippet-save">Save current code</button></div><textarea id="snippet-code" spellcheck="false" placeholder="// Write reusable JavaScript here"></textarea><div class="toolbar"><select id="snippet-list"><option value="">Saved snippets…</option></select><button id="snippet-run">Run</button><button id="snippet-delete">Delete</button></div></section>
+<script src="popup.js"></script></body></html>

@@ -43,7 +43,20 @@
       if (method === "assert" && args[0]) return original.apply(this, args);
       if (method === "groupEnd" || method === "clear") send("console", { level: method, args: [] });
       else send("console", { level: method, args: args.map(v => safe(v)) });
-      return original.apply(this, args);
+      // Some mobile WebView console implementations require the real
+      // console object as the receiver. Never let instrumentation break the
+      // page's own logging if a browser-specific console method throws.
+      try {
+        return Reflect.apply(original, console, args);
+      } catch (firstError) {
+        try {
+          return Reflect.apply(original, this, args);
+        } catch (secondError) {
+          // The logging API itself failed; keep the page running and avoid
+          // recursively calling console from inside this wrapper.
+          return undefined;
+        }
+      }
     };
   });
   setTimeout(() => send("status", { args: ["Page instrumentation connected"] }), 100);

@@ -52,16 +52,37 @@ function evaluate(code, cb) {
 }
 function addConsole(level,args,time=Date.now()) { if(paused)return; entries.push({level,args,time}); if(entries.length>5000) entries.shift(); renderConsole(); }
 function renderConsole() {
- const q=$("filter").value.toLowerCase();
+ const filter=$("filter");
+ const q=String(filter && filter.value || "").toLowerCase();
+ const getArgs=e=>Array.isArray(e && e.args)?e.args:(e && e.args!==undefined && e.args!==null?[e.args]:[]);
+ const formatSafely=value=>{
+   try {
+     const result=fmt(value);
+     return typeof result==="string"?result:String(result ?? "");
+   } catch (_) {
+     try { return String(value ?? ""); } catch (_) { return "[unprintable console value]"; }
+   }
+ };
  const list=entries.filter(e=>{
+   if(!e || typeof e!=="object") return false;
    const levelMatch=activeLevel==="all"||e.level===activeLevel||(activeLevel==="info"&&["info","log","debug"].includes(e.level));
-   const safeArgs=Array.isArray(e.args)?e.args:(e.args ? [e.args] : []);
-   const argsText=fmt(safeArgs);
+   const argsText=formatSafely(getArgs(e));
    return levelMatch && argsText.toLowerCase().includes(q);
  });
- $("count").textContent=list.length+" messages"; $("output").replaceChildren();
- if(!list.length){const d=document.createElement("div");d.className="empty";d.textContent=entries.length?"No messages match this filter.":"Waiting for page activity…";$("output").append(d);return;}
- list.forEach(e=>{const row=document.createElement("div");row.className="row "+e.level;const t=document.createElement("span");t.className="time";t.textContent=new Date(e.time).toLocaleTimeString();const b=document.createElement("span");b.className="badge";b.textContent=e.level;const p=document.createElement("pre");p.className="payload";p.textContent=e.args.map(fmt).join(" ");row.append(t,b,p);$("output").append(row);});$("output").scrollTop=$("output").scrollHeight;
+ const count=$("count"), output=$("output");
+ if(!count || !output) return;
+ count.textContent=list.length+" messages";
+ output.replaceChildren();
+ if(!list.length){const d=document.createElement("div");d.className="empty";d.textContent=entries.length?"No messages match this filter.":"Waiting for page activity…";output.append(d);return;}
+ list.forEach(e=>{
+   const row=document.createElement("div");row.className="row "+String(e.level||"log");
+   const t=document.createElement("span");t.className="time";t.textContent=new Date(e.time||Date.now()).toLocaleTimeString();
+   const b=document.createElement("span");b.className="badge";b.textContent=String(e.level||"log");
+   const p=document.createElement("pre");p.className="payload";
+   p.textContent=getArgs(e).map(formatSafely).join(" ");
+   row.append(t,b,p);output.append(row);
+ });
+ output.scrollTop=output.scrollHeight;
 }
 port.onMessage.addListener(e=>{if(!e)return;if(e.kind==="eval-result"){const cb=pendingEvaluations.get(e.id);if(cb){pendingEvaluations.delete(e.id);cb(e.error?{error:e.error}:e.result);}return;}if(e.kind==="status"){pageHookSeen=true;addConsole("info",e.args||["Page instrumentation connected"],e.time);return;}if(e.kind==="network"){requests.push(e);renderNetwork();}else if(e.kind==="console"){if(e.level==="clear")entries.length=0;else addConsole(e.level,e.args,e.time);}});
 $("clear").onclick=()=>{entries.length=0;renderConsole();};

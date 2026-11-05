@@ -11,14 +11,14 @@
   });
   let overlay = null;
   const closeOverlay = () => { if (overlay) overlay.remove(); overlay = null; };
-  const openOverlay = () => {
+  const openOverlay = (tabId) => {
     if (overlay) { overlay.__bcResize && overlay.__bcResize(); closeOverlay(); return; }
     const host = document.createElement("div");
     host.id = "better-console-overlay-host";
     host.style.cssText = "all:initial;position:fixed;z-index:2147483647;inset:auto 0 0 0;width:100vw;height:54dvh;margin:0;padding:0;border:0;background:#10151d;box-shadow:0 -10px 35px rgba(0,0,0,.45);";
     const frame = document.createElement("iframe");
     frame.title = "Better Console";
-    frame.src = chrome.runtime.getURL("popup.html");
+    frame.src = chrome.runtime.getURL("popup.html") + "?tabId=" + encodeURIComponent(String(tabId));
     frame.style.cssText = "display:block;position:absolute;inset:0;width:100%;height:100%;border:0;margin:0;padding:0;background:#10151d;";
     frame.setAttribute("allow", "clipboard-read; clipboard-write");
     host.appendChild(frame);
@@ -43,7 +43,7 @@
   });
   chrome.runtime.onMessage.addListener((message) => {
     if (!message) return;
-    if (message.type === "better-console-toggle-overlay") openOverlay();
+    if (message.type === "better-console-toggle-overlay") openOverlay(message.tabId);
     if (message.type === "better-console-eval") window.postMessage({ source: "better-console-extension", action: "eval", id: message.id, code: message.code }, "*");
   });
 })();

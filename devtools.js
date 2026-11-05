@@ -1,0 +1,1 @@
+chrome.devtools.panels.create("Better Console", "", "panel.html", function () {});

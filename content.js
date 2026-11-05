@@ -53,15 +53,95 @@
       return false;
     }
     if (message.type === "better-console-export-html") {
-      try {
-        const root = document.documentElement.cloneNode(true);
-        root.querySelectorAll("#better-console-overlay-host").forEach(node => node.remove());
-        const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) + "\\n" : "";
-        sendResponse({ ok: true, html: doctype + root.outerHTML, title: document.title || "page" });
-      } catch (error) {
-        sendResponse({ ok: false, error: String(error && error.message || error) });
-      }
-      return false;
+      (async () => {
+        try {
+          const root = document.documentElement.cloneNode(true);
+          root.querySelectorAll("#better-console-overlay-host").forEach(node => node.remove());
+          const warnings = [];
+          let stylesheetsInlined = 0, scriptsInlined = 0, jsonCaptured = 0;
+          const absolute = value => { try { return new URL(value, document.baseURI).href; } catch (_) { return ""; } };
+          const fetchText = async url => {
+            const response = await fetch(url, { credentials: "include", cache: "no-store" });
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            return response.text();
+          };
+
+          // Inline linked stylesheets so the saved document does not depend on
+          // the original site's CSS URLs. Keep media/title attributes.
+          for (const link of Array.from(root.querySelectorAll('link[rel~="stylesheet"][href]'))) {
+            const url = absolute(link.getAttribute("href"));
+            try {
+              const css = await fetchText(url);
+              const style = document.createElement("style");
+              for (const attr of ["media", "title"]) if (link.hasAttribute(attr)) style.setAttribute(attr, link.getAttribute(attr));
+              style.textContent = "/* Inlined from " + url.replace(/\\*\\//g, "") + " */\\n" + css;
+              link.replaceWith(style);
+              stylesheetsInlined++;
+            } catch (error) {
+              warnings.push("Stylesheet not embedded: " + url + " (" + String(error.message || error) + ")");
+            }
+          }
+
+          // Inline classic and module script files. Removing async/defer keeps
+          // execution in document order in the exported copy.
+          for (const script of Array.from(root.querySelectorAll("script[src]"))) {
+            const url = absolute(script.getAttribute("src"));
+            try {
+              const source = await fetchText(url);
+              script.removeAttribute("src");
+              script.removeAttribute("integrity");
+              script.removeAttribute("crossorigin");
+              script.removeAttribute("referrerpolicy");
+              script.removeAttribute("async");
+              script.removeAttribute("defer");
+              script.textContent = "\\n/* Inlined from " + url.replace(/\\*\\//g, "") + " */\\n" + source + "\\n";
+              scriptsInlined++;
+            } catch (error) {
+              warnings.push("Script not embedded: " + url + " (" + String(error.message || error) + ")");
+            }
+          }
+
+          // Capture JSON resources already requested by the page as inert data
+          // blocks. These preserve the data in the file without executing it.
+          const jsonUrls = new Set();
+          for (const entry of performance.getEntriesByType("resource")) {
+            if (!entry.name || !/^https?:/i.test(entry.name)) continue;
+            if (/\\.json(?:[?#]|$)/i.test(entry.name)) jsonUrls.add(entry.name);
+          }
+          for (const url of jsonUrls) {
+            try {
+              const response = await fetch(url, { credentials: "include", cache: "no-store" });
+              if (!response.ok) throw new Error("HTTP " + response.status);
+              const type = response.headers.get("content-type") || "";
+              if (type && !/json|text\\/plain/i.test(type)) continue;
+              const data = await response.text();
+              const block = document.createElement("script");
+              block.type = "application/json";
+              block.setAttribute("data-better-console-source", url);
+              block.textContent = data;
+              root.querySelector("body")?.appendChild(block);
+              jsonCaptured++;
+            } catch (error) {
+              warnings.push("JSON resource not captured: " + url + " (" + String(error.message || error) + ")");
+            }
+          }
+
+          // A saved copy should not retain a policy meta tag that blocks the
+          // inlined styles/scripts we just embedded. This only changes the
+          // exported file, never the live page.
+          root.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]').forEach(node => node.remove());
+          const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) + "\\n" : "";
+          sendResponse({
+            ok: true,
+            html: doctype + root.outerHTML,
+            title: document.title || "page",
+            stats: { stylesheetsInlined, scriptsInlined, jsonCaptured, warnings }
+          });
+        } catch (error) {
+          sendResponse({ ok: false, error: String(error && error.message || error) });
+        }
+      })();
+      return true;
     }
     if (message.type === "better-console-eval") {
       window.postMessage({ source: "better-console-extension", action: "eval", id: message.id, code: message.code }, "*");

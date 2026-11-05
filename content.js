@@ -41,15 +41,17 @@
     overlay.__bcResize && overlay.__bcResize();
     closeOverlay();
   });
-  chrome.runtime.onMessage.addListener((message) => {
-    if (!message) return;
-    // tabs.sendMessage can reach every frame. Keep the UI and eval target in
-    // the top document so cross-origin iframes do not create duplicate panels
-    // or execute the same command multiple times.
-    if (window !== window.top) return;
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message) return false;
+    // tabs.sendMessage can reach every frame. Only the top frame handles
+    // commands, but it must send an acknowledgement: some Android Chromium
+    // builds report "message port closed" when a listener sends no response.
+    if (window !== window.top) return false;
     if (message.type === "better-console-toggle-overlay") openOverlay(message.tabId);
     if (message.type === "better-console-eval") {
       window.postMessage({ source: "better-console-extension", action: "eval", id: message.id, code: message.code }, "*");
     }
+    try { sendResponse({ ok: true }); } catch (_) {}
+    return false;
   });
 })();

@@ -1,76 +1,40 @@
-const output = document.getElementById("output");
-const filter = document.getElementById("filter");
-const count = document.getElementById("count");
-const entries = [];
-let activeLevel = "all";
-let preserve = true;
+const $ = id => document.getElementById(id);
+const entries = [], requests = [];
+let activeLevel = "all", preserve = true, storeType = "localStorage", selectedRequest = null;
 const port = chrome.runtime.connect({ name: "better-console-panel" });
 port.postMessage({ type: "attach", tabId: chrome.devtools.inspectedWindow.tabId });
-
-const format = (value) => {
-  if (typeof value === "string") return value;
-  try { return JSON.stringify(value, null, 2); } catch (_) { return String(value); }
-};
-function render() {
-  const query = filter.value.toLowerCase();
-  const visible = entries.filter((entry) => {
-    const levelMatch = activeLevel === "all" || entry.level === activeLevel ||
-      (activeLevel === "info" && ["info", "log", "debug"].includes(entry.level));
-    return levelMatch && format(entry.args).toLowerCase().includes(query);
-  });
-  count.textContent = visible.length + (visible.length === 1 ? " message" : " messages");
-  output.replaceChildren();
-  if (!visible.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = entries.length ? "No messages match this filter." : "Waiting for page activity…";
-    output.append(empty);
-    return;
-  }
-  visible.forEach((entry) => {
-    const row = document.createElement("div");
-    row.className = "row " + entry.level;
-    const time = document.createElement("span"); time.className = "time";
-    time.textContent = new Date(entry.time).toLocaleTimeString();
-    const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = entry.level;
-    const payload = document.createElement("span"); payload.className = "payload";
-    payload.textContent = entry.args.map(format).join(" ");
-    row.append(time, badge, payload); output.append(row);
-  });
-  output.scrollTop = output.scrollHeight;
+const fmt = v => typeof v === "string" ? v : JSON.stringify(v, null, 2) ?? String(v);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function evaluate(code, cb) { chrome.devtools.inspectedWindow.eval(code, (result, exception) => cb(exception && exception.isException ? {error: exception.description || "Evaluation failed"} : result)); }
+function addConsole(level,args,time=Date.now()) { entries.push({level,args,time}); if(entries.length>5000) entries.shift(); renderConsole(); }
+function renderConsole() {
+ const q=$("filter").value.toLowerCase();
+ const list=entries.filter(e=>(activeLevel==="all"||e.level===activeLevel||(activeLevel==="info"&&["info","log","debug"].includes(e.level)))&&fmt(e.args).toLowerCase().includes(q));
+ $("count").textContent=list.length+" messages"; $("output").replaceChildren();
+ if(!list.length){const d=document.createElement("div");d.className="empty";d.textContent=entries.length?"No messages match this filter.":"Waiting for page activity…";$("output").append(d);return;}
+ list.forEach(e=>{const row=document.createElement("div");row.className="row "+e.level;const t=document.createElement("span");t.className="time";t.textContent=new Date(e.time).toLocaleTimeString();const b=document.createElement("span");b.className="badge";b.textContent=e.level;const p=document.createElement("pre");p.className="payload";p.textContent=e.args.map(fmt).join(" ");row.append(t,b,p);$("output").append(row);});$("output").scrollTop=$("output").scrollHeight;
 }
-port.onMessage.addListener((entry) => {
-  if (!entry || !Array.isArray(entry.args)) return;
-  entries.push(entry);
-  if (entries.length > 2000) entries.shift();
-  render();
-});
-document.getElementById("clear").addEventListener("click", () => { entries.length = 0; render(); });
-document.getElementById("preserve").addEventListener("click", (event) => {
-  preserve = !preserve;
-  event.currentTarget.setAttribute("aria-pressed", String(preserve));
-});
-filter.addEventListener("input", render);
-document.querySelectorAll("[data-level]").forEach((button) => button.addEventListener("click", () => {
-  activeLevel = button.dataset.level;
-  document.querySelectorAll("[data-level]").forEach((item) => item.classList.toggle("active", item === button));
-  render();
-}));
-document.getElementById("command").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const input = document.getElementById("expression");
-  const expression = input.value.trim();
-  if (!expression) return;
-  entries.push({ level: "info", args: ["› " + expression], time: Date.now() });
-  chrome.devtools.inspectedWindow.eval(expression, (result, exceptionInfo) => {
-    if (exceptionInfo && exceptionInfo.isException) {
-      entries.push({ level: "error", args: [exceptionInfo.description || "Evaluation failed"], time: Date.now() });
-    } else {
-      entries.push({ level: "info", args: [result], time: Date.now() });
-    }
-    render();
-  });
-  input.value = "";
-  render();
-});
-chrome.devtools.network.onNavigated.addListener(() => { if (!preserve) { entries.length = 0; render(); } });
+port.onMessage.addListener(e=>{if(!e)return;if(e.kind==="network"){requests.push(e);renderNetwork();}else if(e.kind==="console"){if(e.level==="clear")entries.length=0;else addConsole(e.level,e.args,e.time);}});
+$("clear").onclick=()=>{entries.length=0;renderConsole();};
+$("preserve").onclick=e=>{preserve=!preserve;e.currentTarget.setAttribute("aria-pressed",String(preserve));};
+$("filter").oninput=renderConsole;
+document.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>{activeLevel=b.dataset.level;document.querySelectorAll("[data-level]").forEach(x=>x.classList.toggle("active",x===b));renderConsole();});
+$("command").onsubmit=e=>{e.preventDefault();const code=$("expression").value.trim();if(!code)return;addConsole("debug",["> "+code]);evaluate(code,r=>addConsole(r&&r.error?"error":"result",[r]));$("expression").value="";};
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab,.view").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("view-"+b.dataset.tab).classList.add("active");if(b.dataset.tab==="storage")refreshStorage();if(b.dataset.tab==="info")refreshInfo();});
+function renderNetwork(){ $("network-count").textContent=requests.length;$("network-total").textContent=requests.length+" requests";const q=$("network-filter").value.toLowerCase();$("network-rows").replaceChildren();requests.filter(r=>(r.url||"").toLowerCase().includes(q)||(r.method||"").toLowerCase().includes(q)).forEach(r=>{const tr=document.createElement("tr");tr.innerHTML="<td>"+esc(r.method||"")+"</td><td>"+esc(r.status||"—")+"</td><td>"+esc(r.type||"")+"</td><td>"+esc(r.url||"")+"</td><td>"+esc((r.duration||0)+" ms")+"</td>";tr.onclick=()=>{$("network-detail").textContent=JSON.stringify(r,null,2);};$("network-rows").append(tr);});}
+$("network-filter").oninput=renderNetwork;$("network-clear").onclick=()=>{requests.length=0;renderNetwork();$("network-detail").textContent="Select a request to inspect its details.";};
+$("inspect-selector").onclick=()=>{const s=$("selector").value;evaluate("(()=>{try{return [...document.querySelectorAll("+JSON.stringify(s)+")].slice(0,100).map((e,i)=>({index:i,tag:e.tagName,id:e.id,classes:e.className,text:(e.innerText||e.textContent||'').slice(0,500),html:e.outerHTML.slice(0,2000),rect:(()=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()}))}catch(e){return {error:e.message}}})()",r=>$("element-result").textContent=JSON.stringify(r,null,2));};
+$("highlight").onclick=()=>evaluate("(()=>{document.querySelectorAll('[data-bc-highlight]').forEach(e=>{e.style.outline=e.dataset.bcOldOutline||'';delete e.dataset.bcHighlight;delete e.dataset.bcOldOutline});try{const e=document.querySelector("+JSON.stringify($("selector").value)+");if(!e)return 'No match';e.dataset.bcOldOutline=e.style.outline;e.dataset.bcHighlight='1';e.style.outline='3px solid #ff4d8d';return e.tagName+' highlighted'}catch(e){return e.message}})()",r=>addConsole("info",[r]));
+document.querySelectorAll("[data-store]").forEach(b=>b.onclick=()=>{storeType=b.dataset.store;document.querySelectorAll("[data-store]").forEach(x=>x.classList.toggle("active",x===b));refreshStorage();});
+function refreshStorage(){evaluate("(()=>{const t="+JSON.stringify(storeType)+";if(t==='cookies')return document.cookie.split(';').filter(Boolean).map(x=>{const i=x.indexOf('=');return {key:x.slice(0,i).trim(),value:x.slice(i+1).trim()}});const s=window[t];return Object.keys(s).map(key=>({key,value:s.getItem(key)}))})()",r=>{const root=$("storage-rows");root.replaceChildren();if(r&&r.error){root.textContent=r.error;return;} (r||[]).forEach(item=>{const row=document.createElement("div");row.className="storage-row";const k=document.createElement("code");k.textContent=item.key;const v=document.createElement("span");v.textContent=item.value;const del=document.createElement("button");del.textContent="Delete";del.onclick=()=>evaluate(storeType==="cookies"?"document.cookie="+JSON.stringify(item.key+"=; Max-Age=0; path=/"):"window["+JSON.stringify(storeType)+"].removeItem("+JSON.stringify(item.key)+")",refreshStorage);row.append(k,v,del);root.append(row);});});}
+$("storage-refresh").onclick=refreshStorage;$("storage-save").onclick=()=>{const k=$("storage-key").value,v=$("storage-value").value;if(!k)return;const code=storeType==="cookies"?"document.cookie="+JSON.stringify(k+"="+v+"; path=/; SameSite=Lax"):"window["+JSON.stringify(storeType)+"].setItem("+JSON.stringify(k)+","+JSON.stringify(v)+")";evaluate(code,refreshStorage);};
+function refreshInfo(){evaluate("(()=>({url:location.href,title:document.title,origin:location.origin,referrer:document.referrer,readyState:document.readyState,userAgent:navigator.userAgent,language:navigator.language,languages:navigator.languages,platform:navigator.platform,online:navigator.onLine,cookieEnabled:navigator.cookieEnabled,screen:{width:screen.width,height:screen.height,depth:screen.colorDepth},viewport:{width:innerWidth,height:innerHeight,devicePixelRatio},memory:navigator.deviceMemory||'unknown',cores:navigator.hardwareConcurrency||'unknown',connection:navigator.connection?{effectiveType:navigator.connection.effectiveType,downlink:navigator.connection.downlink}:null,performance:{load:Math.round(performance.now()),resources:performance.getEntriesByType('resource').length}}))()",r=>$("info-result").textContent=JSON.stringify(r,null,2));}
+$("info-refresh").onclick=refreshInfo;
+const snippetsKey="betterConsoleSnippets";
+function loadSnippets(){chrome.storage.local.get([snippetsKey],o=>{const list=$( "snippet-list");list.replaceChildren(new Option("Saved snippets…",""));(o[snippetsKey]||[]).forEach((s,i)=>list.add(new Option(s.name,i)));});}
+$("snippet-save").onclick=()=>{const name=$("snippet-name").value.trim(),code=$("snippet-code").value;if(!name||!code)return;chrome.storage.local.get([snippetsKey],o=>{const a=o[snippetsKey]||[];a.push({name,code});chrome.storage.local.set({[snippetsKey]:a},loadSnippets);});};
+$("snippet-list").onchange=e=>{chrome.storage.local.get([snippetsKey],o=>{const s=(o[snippetsKey]||[])[Number(e.target.value)];if(s){$("snippet-name").value=s.name;$("snippet-code").value=s.code;}});};
+$("snippet-run").onclick=()=>evaluate($("snippet-code").value,r=>addConsole(r&&r.error?"error":"result",[r]));
+$("snippet-delete").onclick=()=>{const i=Number($("snippet-list").value);if(!Number.isInteger(i)||$("snippet-list").value==="")return;chrome.storage.local.get([snippetsKey],o=>{const a=o[snippetsKey]||[];a.splice(i,1);chrome.storage.local.set({[snippetsKey]:a},loadSnippets);});};
+chrome.devtools.network.onNavigated.addListener(()=>{if(!preserve){entries.length=0;requests.length=0;renderConsole();renderNetwork();}});
+loadSnippets();

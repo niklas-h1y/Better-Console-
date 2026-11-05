@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Better Console",
+  "version": "1.0.0",
+  "description": "A modern in-browser developer console inspired by Eruda.",
+  "devtools_page": "devtools.html",
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "run_at": "document_start",
+    "all_frames": true
+  }],
+  "web_accessible_resources": [{
+    "resources": ["bridge.js"],
+    "matches": ["<all_urls>"]
+  }],
+  "icons": {}
+}

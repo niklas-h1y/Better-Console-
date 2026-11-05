@@ -4,16 +4,15 @@ let activeLevel = "all", paused = false, storeType = "localStorage", selectedReq
 let activeTabId = null;
 const pendingEvaluations = new Map();
 const port = chrome.runtime.connect({ name: "better-console-panel" });
-chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-  const tab = tabs && tabs[0];
-  if (!tab || !Number.isInteger(tab.id)) {
-    addConsole("error", ["Could not determine the active tab."]);
-    return;
-  }
-  activeTabId = tab.id;
+const requestedTabId = Number(new URLSearchParams(location.search).get("tabId"));
+function attachToTab(tabId) {
+  if (!Number.isInteger(tabId)) { addConsole("error", ["Could not determine the page tab."]); return; }
+  activeTabId = tabId;
   port.postMessage({ type: "attach", tabId: activeTabId });
   addConsole("info", ["Page console connected."]);
-});
+}
+if (Number.isInteger(requestedTabId) && requestedTabId > 0) attachToTab(requestedTabId);
+else chrome.tabs.query({ active: true, currentWindow: true }, tabs => attachToTab(tabs && tabs[0] && tabs[0].id));
 addConsole("info", ["Better Console attached to this webpage."]);
 let pageHookSeen = false;
 setTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page instrumentation handshake yet. Refresh this webpage and reopen the console."]); }, 1800);

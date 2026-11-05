@@ -12,11 +12,11 @@ chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
   }
   activeTabId = tab.id;
   port.postMessage({ type: "attach", tabId: activeTabId });
-  addConsole("info", ["Mobile console attached. If no page events appear, refresh the website and reopen this popup."]);
+  addConsole("info", ["Page console connected."]);
 });
-addConsole("info", ["Better Console panel connected. Waiting for page instrumentation…"]);
+addConsole("info", ["Better Console attached to this webpage."]);
 let pageHookSeen = false;
-setTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page instrumentation handshake yet. Refresh the website, then close and reopen this popup. Browser internal pages and extension store pages cannot be inspected."]); }, 1800);
+setTimeout(() => { if (!pageHookSeen) addConsole("warn", ["No page instrumentation handshake yet. Refresh this webpage and reopen the console."]); }, 1800);
 const fmt = v => typeof v === "string" ? v : JSON.stringify(v, null, 2) ?? String(v);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function evaluate(code, cb) {
@@ -45,6 +45,7 @@ function renderConsole() {
 }
 port.onMessage.addListener(e=>{if(!e)return;if(e.kind==="eval-result"){const cb=pendingEvaluations.get(e.id);if(cb){pendingEvaluations.delete(e.id);cb(e.error?{error:e.error}:e.result);}return;}if(e.kind==="status"){pageHookSeen=true;addConsole("info",e.args||["Page instrumentation connected"],e.time);return;}if(e.kind==="network"){requests.push(e);renderNetwork();}else if(e.kind==="console"){if(e.level==="clear")entries.length=0;else addConsole(e.level,e.args,e.time);}});
 $("clear").onclick=()=>{entries.length=0;renderConsole();};
+$("close-console").onclick=()=>{if(window.parent!==window)window.parent.postMessage({source:"better-console-ui",action:"close"},"*");};
 $("pause").onclick=e=>{paused=!paused;e.currentTarget.setAttribute("aria-pressed",String(paused));e.currentTarget.textContent=paused?"Resume":"Pause";};
 $("filter").oninput=renderConsole;
 document.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>{activeLevel=b.dataset.level;document.querySelectorAll("[data-level]").forEach(x=>x.classList.toggle("active",x===b));renderConsole();});

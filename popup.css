@@ -30,3 +30,11 @@ td:nth-child(4){max-width:42vw}
 #snippet-code{min-height:140px}
 #snippet-list{min-width:0;flex:1}
 .empty{padding:25px 12px}
+
+/* Orientation-aware dock: bottom half in portrait, right half in landscape. */
+html,body{width:100vw;height:52dvh;min-width:0;min-height:0;max-height:52dvh}
+body{border-top:1px solid var(--line);box-shadow:0 -12px 36px #0009}
+@media (orientation:landscape){
+ html,body{width:48vw;height:100dvh;min-width:320px;max-width:48vw;min-height:0;max-height:100dvh}
+ body{border-top:0;border-left:1px solid var(--line);box-shadow:-12px 0 36px #0009}
+}

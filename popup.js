@@ -162,7 +162,18 @@ async function copyText(value) {
   try { await navigator.clipboard.writeText(String(value)); addConsole("info",["Copied to clipboard."]); }
   catch (_) { const t=document.createElement("textarea");t.value=String(value);document.body.append(t);t.select();try{document.execCommand("copy");addConsole("info",["Copied to clipboard."]);}catch(e){addConsole("error",["Clipboard copy failed",String(e)]);}t.remove(); }
 }
-$("html-export").onclick=()=>evaluate("(()=>{const root=document.documentElement.cloneNode(true);root.querySelectorAll('#better-console-overlay-host').forEach(node=>node.remove());const doctype=document.doctype?new XMLSerializer().serializeToString(document.doctype)+'\\n':'';return {html:doctype+root.outerHTML,title:document.title||'page'}})()",result=>{if(result&&result.error){addConsole("error",["HTML export failed",result.error]);return;}if(!result||typeof result.html!=="string"){addConsole("error",["HTML export failed: the page returned no HTML."]);return;}const base=String(result.title||"page").replace(/[\\\\/:*?"<>|]+/g,"-").replace(/\\s+/g," ").trim().slice(0,80)||"page";downloadText(base+"-"+Date.now()+".html",result.html,"text/html;charset=utf-8");addConsole("info",["Exported page HTML ("+result.html.length.toLocaleString()+" characters)."]);});
+$("html-export").onclick=()=>{
+  if(!Number.isInteger(activeTabId)){addConsole("error",["HTML export failed: no active page is connected."]);return;}
+  try {
+    chrome.tabs.sendMessage(activeTabId,{type:"better-console-export-html"},response=>{
+      if(chrome.runtime.lastError){addConsole("error",["HTML export failed",chrome.runtime.lastError.message]);return;}
+      if(!response||!response.ok||typeof response.html!=="string"){addConsole("error",["HTML export failed",response&&response.error||"The page returned no HTML."]);return;}
+      const base=String(response.title||"page").replace(/[\\\\/:*?"<>|]+/g,"-").replace(/\\s+/g," ").trim().slice(0,80)||"page";
+      downloadText(base+"-"+Date.now()+".html",response.html,"text/html;charset=utf-8");
+      addConsole("info",["Exported page HTML ("+response.html.length.toLocaleString()+" characters)."]);
+    });
+  } catch(error) { addConsole("error",["HTML export failed",String(error)]); }
+};
 $("console-export").onclick=()=>downloadText("better-console-log-"+Date.now()+".json",JSON.stringify(entries,null,2));
 $("network-export").onclick=()=>downloadText("better-console-network-"+Date.now()+".har",JSON.stringify({log:{version:"1.2",creator:{name:"Better Console",version:"3.1"},entries:requests.map(r=>({startedDateTime:new Date(r.time||Date.now()).toISOString(),time:r.duration||0,request:{method:r.method||"GET",url:r.url||"",headers:r.requestHeaders||[]},response:{status:r.status||0,statusText:r.statusText||"",headers:r.responseHeaders||[],content:{size:r.responseSize||0,mimeType:r.mimeType||""}},_type:r.type||"",_error:r.error||null}))}},null,2),"application/json");
 $("storage-export").onclick=()=>evaluate("(()=>{const t="+JSON.stringify(storeType)+";if(t==='cookies')return {type:t,items:document.cookie};const s=window[t];return {type:t,items:Object.fromEntries(Object.keys(s).map(k=>[k,s.getItem(k)]))}})()",r=>downloadText("better-console-"+storeType+".json",JSON.stringify(r,null,2)));

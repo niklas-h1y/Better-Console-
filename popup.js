@@ -55,7 +55,8 @@ function renderConsole() {
  const q=$("filter").value.toLowerCase();
  const list=entries.filter(e=>{
    const levelMatch=activeLevel==="all"||e.level===activeLevel||(activeLevel==="info"&&["info","log","debug"].includes(e.level));
-   const argsText=fmt(Array.isArray(e.args)?e.args:[e.args]);
+   const safeArgs=Array.isArray(e.args)?e.args:(e.args ? [e.args] : []);
+   const argsText=fmt(safeArgs);
    return levelMatch && argsText.toLowerCase().includes(q);
  });
  $("count").textContent=list.length+" messages"; $("output").replaceChildren();

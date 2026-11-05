@@ -38,3 +38,9 @@ body{border-top:1px solid var(--line);box-shadow:0 -12px 36px #0009}
  html,body{width:48vw;height:100dvh;min-width:320px;max-width:48vw;min-height:0;max-height:100dvh}
  body{border-top:0;border-left:1px solid var(--line);box-shadow:-12px 0 36px #0009}
 }
+
+/* Expanded mobile toolbars */
+.topbar .actions{flex-wrap:wrap;justify-content:flex-end}
+.toolbar button{flex:0 0 auto}
+#element-result{min-height:0}
+#storage-rows{overflow:auto;flex:1;min-height:0}

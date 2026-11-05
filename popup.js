@@ -164,14 +164,13 @@ async function copyText(value) {
 }
 $("html-export").onclick=()=>{
   if(!Number.isInteger(activeTabId)){addConsole("error",["HTML export failed: no active page is connected."]);return;}
-  if(!confirm("Export page content, form values, accessible storage, cookies and loaded JSON responses? The file may contain passwords, session tokens or personal data. Only save or share it if you trust the destination.")) return;
   try {
     chrome.tabs.sendMessage(activeTabId,{type:"better-console-export-html"},response=>{
       if(chrome.runtime.lastError){addConsole("error",["HTML export failed",chrome.runtime.lastError.message]);return;}
       if(!response||!response.ok||typeof response.html!=="string"){addConsole("error",["HTML export failed",response&&response.error||"The page returned no HTML."]);return;}
       const base=String(response.title||"page").replace(/[\\\\/:*?"<>|]+/g,"-").replace(/\\s+/g," ").trim().slice(0,80)||"page";
       downloadText(base+"-"+Date.now()+".html",response.html,"text/html;charset=utf-8");
-      const stats=response.stats||{}; addConsole("info",["Exported comprehensive page archive ("+response.html.length.toLocaleString()+" characters): "+(stats.stylesheetsInlined||0)+" stylesheets, "+(stats.scriptsInlined||0)+" scripts, "+(stats.assetsEmbedded||0)+" assets, "+(stats.jsonCaptured||0)+" JSON responses, "+(stats.framesCaptured||0)+" frames; "+(stats.bytesEmbedded||0).toLocaleString()+" resource bytes embedded."]); if(stats.warnings&&stats.warnings.length)addConsole("warn",["Some resources could not be embedded:",...stats.warnings]);
+      const stats=response.stats||{}; addConsole("info",["Exported entire page ("+response.html.length.toLocaleString()+" characters): "+(stats.stylesheetsInlined||0)+" stylesheets, "+(stats.scriptsInlined||0)+" scripts, "+(stats.assetsEmbedded||0)+" assets, "+(stats.framesCaptured||0)+" frames; "+(stats.bytesEmbedded||0).toLocaleString()+" resource bytes embedded."]); if(stats.warnings&&stats.warnings.length)addConsole("warn",["Some resources could not be embedded:",...stats.warnings]);
     });
   } catch(error) { addConsole("error",["HTML export failed",String(error)]); }
 };

@@ -21,7 +21,12 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">"
 function evaluate(code, cb) {
   if (!Number.isInteger(activeTabId)) { cb({error:"No active tab is connected."}); return; }
   const id = "bc-" + Date.now() + "-" + Math.random().toString(36).slice(2);
-  pendingEvaluations.set(id, cb);
+  const timeout = setTimeout(() => {
+    if (!pendingEvaluations.has(id)) return;
+    pendingEvaluations.delete(id);
+    cb({error:"The page did not answer the command. Refresh the page and try again; some pages block script execution."});
+  }, 10000);
+  pendingEvaluations.set(id, result => { clearTimeout(timeout); cb(result); });
   try {
     chrome.tabs.sendMessage(activeTabId, {type:"better-console-eval", id, code}, () => {
       if (chrome.runtime.lastError) {
@@ -95,3 +100,51 @@ $("element-hide").onclick=()=>selectedElementAction("hide");
 $("element-text").onclick=()=>selectedElementAction("text");
 $("element-copy").onclick=()=>selectedElementAction("copy");
 $("element-tree").onclick=()=>selectedElementAction("tree");
+
+
+// Reliability layer: make tab navigation resilient to touch events and surface
+// exceptions from any control instead of leaving the user with a silent no-op.
+document.querySelectorAll("button").forEach(button => {
+  if (button.closest("#command")) button.type = "submit";
+  else button.type = "button";
+  const handler = button.onclick;
+  if (typeof handler === "function") {
+    button.onclick = function(event) {
+      try { return handler.call(this, event); }
+      catch (error) {
+        addConsole("error", ["Button action failed: " + (this.textContent || this.id), String(error && error.stack || error)]);
+        const target = $("element-result");
+        if (target) target.textContent = "Action failed: " + String(error && error.message || error);
+      }
+    };
+  }
+});
+
+// Capture tab taps at document level. This works even when the visible label
+// (or its count badge) is the actual touch target.
+document.addEventListener("click", event => {
+  const tab = event.target.closest && event.target.closest(".tab[data-tab]");
+  if (!tab) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const view = $("view-" + tab.dataset.tab);
+  if (!view) {
+    addConsole("error", ["Unknown tab: " + tab.dataset.tab]);
+    return;
+  }
+  document.querySelectorAll(".tab").forEach(item => {
+    const selected = item === tab;
+    item.classList.toggle("active", selected);
+    item.setAttribute("aria-selected", String(selected));
+  });
+  document.querySelectorAll(".view").forEach(item => item.classList.toggle("active", item === view));
+  if (tab.dataset.tab === "storage") refreshStorage();
+  if (tab.dataset.tab === "info") refreshInfo();
+}, true);
+
+window.addEventListener("error", event => {
+  try { addConsole("error", ["Console UI error", event.message || "Unknown UI error", event.filename || "", event.lineno || ""]); } catch (_) {}
+});
+window.addEventListener("unhandledrejection", event => {
+  try { addConsole("error", ["Console UI promise rejected", String(event.reason && (event.reason.stack || event.reason) || "Unknown rejection")]); } catch (_) {}
+});

@@ -29,7 +29,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 });
 chrome.action.onClicked.addListener((tab) => {
   if (!tab || !Number.isInteger(tab.id)) return;
-  chrome.tabs.sendMessage(tab.id, { type: "better-console-toggle-overlay" }, () => {
+  chrome.tabs.sendMessage(tab.id, { type: "better-console-toggle-overlay", tabId: tab.id }, () => {
     if (chrome.runtime.lastError) console.warn("Better Console cannot attach to this page:", chrome.runtime.lastError.message);
   });
 });

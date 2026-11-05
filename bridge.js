@@ -5,7 +5,7 @@
     try {
       window.postMessage({ source: "better-console-page", entry: {
         kind, ...data, time: Date.now(), url: location.href
-      } }, location.origin);
+      } }, "*");
     } catch (_) {}
   };
   const safe = (value, depth = 0, seen = new WeakSet()) => {

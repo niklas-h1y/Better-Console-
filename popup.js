@@ -45,9 +45,12 @@ function evaluate(code, cb) {
   }, 10000);
   pendingEvaluations.set(id, result => { clearTimeout(timeout); cb(result); });
   try {
-    chrome.tabs.sendMessage(activeTabId, {type:"better-console-eval", id, code}, () => {
-      if (chrome.runtime.lastError) {
+    chrome.tabs.sendMessage(activeTabId, {type:"better-console-eval", id, code}, response => {
+      // A command acknowledgement confirms the content script received it.
+      // The actual evaluation result arrives asynchronously through the port.
+      if (chrome.runtime.lastError && pendingEvaluations.has(id)) {
         pendingEvaluations.delete(id);
+        clearTimeout(timeout);
         cb({error:"Cannot reach this page. Refresh the webpage, then reopen Better Console. " + chrome.runtime.lastError.message});
       }
     });

@@ -43,7 +43,13 @@
   });
   chrome.runtime.onMessage.addListener((message) => {
     if (!message) return;
+    // tabs.sendMessage can reach every frame. Keep the UI and eval target in
+    // the top document so cross-origin iframes do not create duplicate panels
+    // or execute the same command multiple times.
+    if (window !== window.top) return;
     if (message.type === "better-console-toggle-overlay") openOverlay(message.tabId);
-    if (message.type === "better-console-eval") window.postMessage({ source: "better-console-extension", action: "eval", id: message.id, code: message.code }, "*");
+    if (message.type === "better-console-eval") {
+      window.postMessage({ source: "better-console-extension", action: "eval", id: message.id, code: message.code }, "*");
+    }
   });
 })();

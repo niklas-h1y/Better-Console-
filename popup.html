@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Better Console</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup">
+    <header>
+      <div class="mark">&gt;_</div>
+      <div><h1>Better Console</h1><p class="subtitle">Page debugging toolbox</p></div>
+      <span class="badge">v2</span>
+    </header>
+    <section class="status-card">
+      <span class="status-dot"></span>
+      <div><strong id="page-title">Checking current tab…</strong><p id="page-status">Checking whether this page can be inspected.</p></div>
+    </section>
+    <section class="steps">
+      <h2>Open the console</h2>
+      <ol>
+        <li>Open Developer Tools with <kbd>F12</kbd> or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd>.</li>
+        <li>Select the <strong>Better Console</strong> tab in DevTools.</li>
+        <li>Refresh the webpage to capture its console output from the start.</li>
+      </ol>
+    </section>
+    <p class="hint">The console lives in DevTools; the toolbar popup is this quick-start panel.</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

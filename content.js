@@ -125,20 +125,15 @@
           if (target) baseNode.target = target;
           root.querySelector("head")?.prepend(baseNode);
 
-          // Mirror current live form state into the cloned markup.
-          const liveControls = Array.from(document.querySelectorAll("input,textarea,select"));
-          const clonedControls = Array.from(root.querySelectorAll("input,textarea,select"));
-          liveControls.forEach((live, i) => {
-            const clone = clonedControls[i];
-            if (!clone) return;
-            if (live instanceof HTMLInputElement) {
-              if (live.type === "checkbox" || live.type === "radio") clone.toggleAttribute("checked", live.checked);
-              else clone.setAttribute("value", live.value);
-            } else if (live instanceof HTMLTextAreaElement) clone.textContent = live.value;
-            else if (live instanceof HTMLSelectElement) {
-              Array.from(clone.options).forEach((option, j) => option.toggleAttribute("selected", !!live.options[j]?.selected));
-            }
+          // Do not serialize live form values, hidden fields, passwords or tokens.
+          // Keep controls as blank structural elements in the exported page.
+          root.querySelectorAll("input").forEach(input => {
+            input.removeAttribute("value");
+            input.removeAttribute("checked");
+            if (input.type === "password" || input.type === "hidden") input.removeAttribute("name");
           });
+          root.querySelectorAll("textarea").forEach(textarea => { textarea.textContent = ""; });
+          root.querySelectorAll("select option").forEach(option => option.removeAttribute("selected"));
           // Capture canvas pixels as images when the browser allows it.
           const liveCanvases = Array.from(document.querySelectorAll("canvas"));
           const cloneCanvases = Array.from(root.querySelectorAll("canvas"));
@@ -221,6 +216,12 @@
           // URL tree, so failures are reported rather than silently discarded.
           for (const script of Array.from(root.querySelectorAll("script[src]"))) {
             const url = absoluteFrom(script.getAttribute("src"), document.baseURI);
+            // Keep module entry points linked because flattening them breaks
+            // their relative import graph. The base URL preserves resolution.
+            if ((script.getAttribute("type") || "").toLowerCase() === "module") {
+              warnings.push("Module script left linked so its import graph can resolve: " + url);
+              continue;
+            }
             try {
               const source = await fetchAsset(url, true);
               if (source !== null) {
@@ -232,48 +233,9 @@
             } catch (error) { warnings.push("Script not embedded: " + url + " (" + String(error.message || error) + ")"); }
           }
 
-          // Capture JSON-like resources already loaded, even when the URL lacks
-          // a .json suffix, based on Resource Timing and response content type.
-          const resourceUrls = new Set();
-          for (const entry of performance.getEntriesByType("resource")) {
-            if (entry.name && /^https?:/i.test(entry.name)) resourceUrls.add(entry.name);
-          }
-          for (const url of resourceUrls) {
-            if (stats.jsonCaptured >= 100) break;
-            try {
-              const response = await fetch(url, { credentials: "include", cache: "no-store" });
-              if (!response.ok) continue;
-              const type = response.headers.get("content-type") || "";
-              if (!/json/i.test(type) && !/\.json(?:[?#]|$)/i.test(url)) continue;
-              const data = await response.text();
-              if (data.length > 2 * 1024 * 1024) { warnings.push("JSON response skipped (>2 MB): " + url); continue; }
-              const block = document.createElement("script");
-              block.type = "application/json";
-              block.setAttribute("data-better-console-source", url);
-              block.textContent = data.replace(/</g, "\\u003c");
-              root.querySelector("body")?.appendChild(block);
-              stats.jsonCaptured++;
-            } catch (_) { /* Resource may be cross-origin or no longer available. */ }
-          }
-
-          // Add an inert diagnostic archive to the same HTML file.
-          const archive = {
-            capturedAt: new Date().toISOString(),
-            page: { url: location.href, baseURI: document.baseURI, title: document.title, referrer: document.referrer, language: document.documentElement.lang },
-            viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY, devicePixelRatio },
-            forms: liveControls.map((el, index) => ({ index, tag: el.tagName.toLowerCase(), type: el.type || "", name: el.name || "", id: el.id || "", value: el.value, checked: "checked" in el ? el.checked : undefined })),
-            storage: {},
-            cookies: document.cookie,
-            resources: Array.from(performance.getEntriesByType("resource")).map(entry => ({ name: entry.name, type: entry.initiatorType, duration: entry.duration, size: entry.transferSize || 0 })).slice(0, 2000)
-          };
-          try { archive.storage.localStorage = Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])); } catch (_) { archive.storage.localStorage = "[unavailable]"; }
-          try { archive.storage.sessionStorage = Object.fromEntries(Object.keys(sessionStorage).map(key => [key, sessionStorage.getItem(key)])); } catch (_) { archive.storage.sessionStorage = "[unavailable]"; }
-          const dataBlock = document.createElement("script");
-          dataBlock.type = "application/json";
-          dataBlock.id = "better-console-archive-data";
-          dataBlock.textContent = JSON.stringify(archive).replace(/</g, "\\u003c");
-          root.querySelector("body")?.appendChild(dataBlock);
-
+          // Deliberately omit cookies, storage, form values, network response
+          // bodies and diagnostic payloads: this export contains the page and
+          // its presentation/code assets, not private browsing data.
           // Keep the exported copy renderable when embedded inline resources
           // would otherwise be blocked by the original site's CSP meta policy.
           root.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]').forEach(node => node.remove());

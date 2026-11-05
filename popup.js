@@ -170,7 +170,7 @@ $("html-export").onclick=()=>{
       if(!response||!response.ok||typeof response.html!=="string"){addConsole("error",["HTML export failed",response&&response.error||"The page returned no HTML."]);return;}
       const base=String(response.title||"page").replace(/[\\\\/:*?"<>|]+/g,"-").replace(/\\s+/g," ").trim().slice(0,80)||"page";
       downloadText(base+"-"+Date.now()+".html",response.html,"text/html;charset=utf-8");
-      addConsole("info",["Exported page HTML ("+response.html.length.toLocaleString()+" characters)."]);
+      const stats=response.stats||{}; addConsole("info",["Exported self-contained page ("+response.html.length.toLocaleString()+" characters): "+(stats.stylesheetsInlined||0)+" stylesheets, "+(stats.scriptsInlined||0)+" scripts, "+(stats.jsonCaptured||0)+" JSON resources embedded."]); if(stats.warnings&&stats.warnings.length)addConsole("warn",["Some resources could not be embedded:",...stats.warnings]);
     });
   } catch(error) { addConsole("error",["HTML export failed",String(error)]); }
 };

@@ -1,0 +1,9 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="panel.css"><title>Better Console</title></head>
+<body>
+<header class="topbar"><div class="brand"><span class="mark">⌘</span><span>Better Console</span><span class="live">LIVE</span></div><div class="actions"><button id="clear" title="Clear console">Clear</button><button id="preserve" class="toggle" aria-pressed="true">Preserve</button></div></header>
+<nav class="toolbar"><input id="filter" type="search" placeholder="Filter messages…"><div class="levels"><button data-level="all" class="active">All</button><button data-level="error">Errors</button><button data-level="warn">Warnings</button><button data-level="info">Info</button></div><span id="count">0 messages</span></nav>
+<main id="output" aria-live="polite"><div class="empty">Waiting for page activity…</div></main>
+<form id="command" autocomplete="off"><span class="prompt">›</span><input id="expression" spellcheck="false" placeholder="Evaluate JavaScript in the inspected page…"><button type="submit">Run</button></form>
+<script src="panel.js"></script></body></html>

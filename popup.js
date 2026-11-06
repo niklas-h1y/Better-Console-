@@ -162,15 +162,34 @@ async function copyText(value) {
   try { await navigator.clipboard.writeText(String(value)); addConsole("info",["Copied to clipboard."]); }
   catch (_) { const t=document.createElement("textarea");t.value=String(value);document.body.append(t);t.select();try{document.execCommand("copy");addConsole("info",["Copied to clipboard."]);}catch(e){addConsole("error",["Clipboard copy failed",String(e)]);}t.remove(); }
 }
+function randomChallengeCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, value => alphabet[value % alphabet.length]).join("");
+}
+$("include-sensitive").addEventListener("change", event => {
+  const toggle = event.currentTarget;
+  if (!toggle.checked) return;
+  const code = randomChallengeCode();
+  const required = "I know the privacy risks and i know what can happen " + code;
+  const typed = prompt("Sensitive data can expose account sessions, personal information and passwords. To enable it, type this exact phrase including the 10-character code:\\n\\n" + required);
+  if (typed !== required) {
+    toggle.checked = false;
+    addConsole("warn", ["Sensitive data export remains disabled. The confirmation did not match exactly."]);
+    return;
+  }
+  addConsole("warn", ["Sensitive data export enabled for this console session. It may include readable cookies, local/session storage and form values."]);
+});
 $("html-export").onclick=()=>{
   if(!Number.isInteger(activeTabId)){addConsole("error",["HTML export failed: no active page is connected."]);return;}
   try {
-    chrome.tabs.sendMessage(activeTabId,{type:"better-console-export-html"},response=>{
+    chrome.tabs.sendMessage(activeTabId,{type:"better-console-export-html",includeSensitive:$("include-sensitive").checked===true},response=>{
       if(chrome.runtime.lastError){addConsole("error",["HTML export failed",chrome.runtime.lastError.message]);return;}
       if(!response||!response.ok||typeof response.html!=="string"){addConsole("error",["HTML export failed",response&&response.error||"The page returned no HTML."]);return;}
       const base=String(response.title||"page").replace(/[\\\\/:*?"<>|]+/g,"-").replace(/\\s+/g," ").trim().slice(0,80)||"page";
       downloadText(base+"-"+Date.now()+".html",response.html,"text/html;charset=utf-8");
-      const stats=response.stats||{}; addConsole("info",["Exported entire page ("+response.html.length.toLocaleString()+" characters): "+(stats.stylesheetsInlined||0)+" stylesheets, "+(stats.scriptsInlined||0)+" scripts, "+(stats.assetsEmbedded||0)+" assets, "+(stats.framesCaptured||0)+" frames; "+(stats.bytesEmbedded||0).toLocaleString()+" resource bytes embedded."]); if(stats.warnings&&stats.warnings.length)addConsole("warn",["Some resources could not be embedded:",...stats.warnings]);
+      const stats=response.stats||{}; addConsole("info",["Exported entire page"+($("include-sensitive").checked?" with sensitive data":" (sensitive data excluded)")+" ("+response.html.length.toLocaleString()+" characters): "+(stats.stylesheetsInlined||0)+" stylesheets, "+(stats.scriptsInlined||0)+" scripts, "+(stats.assetsEmbedded||0)+" assets, "+(stats.framesCaptured||0)+" frames; "+(stats.bytesEmbedded||0).toLocaleString()+" resource bytes embedded."]); if(stats.warnings&&stats.warnings.length)addConsole("warn",["Some resources could not be embedded:",...stats.warnings]);
     });
   } catch(error) { addConsole("error",["HTML export failed",String(error)]); }
 };

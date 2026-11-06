@@ -125,15 +125,31 @@
           if (target) baseNode.target = target;
           root.querySelector("head")?.prepend(baseNode);
 
-          // Do not serialize live form values, hidden fields, passwords or tokens.
-          // Keep controls as blank structural elements in the exported page.
-          root.querySelectorAll("input").forEach(input => {
-            input.removeAttribute("value");
-            input.removeAttribute("checked");
-            if (input.type === "password" || input.type === "hidden") input.removeAttribute("name");
-          });
-          root.querySelectorAll("textarea").forEach(textarea => { textarea.textContent = ""; });
-          root.querySelectorAll("select option").forEach(option => option.removeAttribute("selected"));
+          // Sensitive form state is included only after the user completes
+          // the guarded opt-in confirmation in Better Console.
+          if (message.includeSensitive === true) {
+            const liveControls = Array.from(document.querySelectorAll("input,textarea,select"));
+            const clonedControls = Array.from(root.querySelectorAll("input,textarea,select"));
+            liveControls.forEach((live, i) => {
+              const clone = clonedControls[i];
+              if (!clone) return;
+              if (live instanceof HTMLInputElement) {
+                if (live.type === "checkbox" || live.type === "radio") clone.toggleAttribute("checked", live.checked);
+                else clone.setAttribute("value", live.value);
+              } else if (live instanceof HTMLTextAreaElement) clone.textContent = live.value;
+              else if (live instanceof HTMLSelectElement) {
+                Array.from(clone.options).forEach((option, j) => option.toggleAttribute("selected", !!live.options[j]?.selected));
+              }
+            });
+          } else {
+            root.querySelectorAll("input").forEach(input => {
+              input.removeAttribute("value");
+              input.removeAttribute("checked");
+              if (input.type === "password" || input.type === "hidden") input.removeAttribute("name");
+            });
+            root.querySelectorAll("textarea").forEach(textarea => { textarea.textContent = ""; });
+            root.querySelectorAll("select option").forEach(option => option.removeAttribute("selected"));
+          }
           // Capture canvas pixels as images when the browser allows it.
           const liveCanvases = Array.from(document.querySelectorAll("canvas"));
           const cloneCanvases = Array.from(root.querySelectorAll("canvas"));
@@ -233,9 +249,29 @@
             } catch (error) { warnings.push("Script not embedded: " + url + " (" + String(error.message || error) + ")"); }
           }
 
-          // Deliberately omit cookies, storage, form values, network response
-          // bodies and diagnostic payloads: this export contains the page and
-          // its presentation/code assets, not private browsing data.
+          // Private browsing data is excluded by default. The explicit,
+          // challenge-confirmed opt-in allows page-readable cookies, Web Storage
+          // and form values to be packaged as inert JSON in this same HTML file.
+          if (message.includeSensitive === true) {
+            const archive = {
+              capturedAt: new Date().toISOString(),
+              page: { url: location.href, title: document.title },
+              cookies: document.cookie,
+              storage: { localStorage: {}, sessionStorage: {} },
+              forms: Array.from(document.querySelectorAll("input,textarea,select")).map((el, index) => ({
+                index, tag: el.tagName.toLowerCase(), type: el.type || "",
+                name: el.name || "", id: el.id || "", value: el.value,
+                checked: "checked" in el ? el.checked : undefined
+              }))
+            };
+            try { for (const key of Object.keys(localStorage)) archive.storage.localStorage[key] = localStorage.getItem(key); } catch (_) { archive.storage.localStorage = "[unavailable]"; }
+            try { for (const key of Object.keys(sessionStorage)) archive.storage.sessionStorage[key] = sessionStorage.getItem(key); } catch (_) { archive.storage.sessionStorage = "[unavailable]"; }
+            const dataBlock = document.createElement("script");
+            dataBlock.type = "application/json";
+            dataBlock.id = "better-console-private-page-data";
+            dataBlock.textContent = JSON.stringify(archive).replace(/</g, "\\u003c");
+            root.querySelector("body")?.appendChild(dataBlock);
+          }
           // Keep the exported copy renderable when embedded inline resources
           // would otherwise be blocked by the original site's CSP meta policy.
           root.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]').forEach(node => node.remove());

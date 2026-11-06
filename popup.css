@@ -18,3 +18,5 @@ table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:9px 11px
 @media(orientation:landscape) and (max-height:500px){.topbar{min-height:42px;padding:5px 10px}.tabs .tab{padding:8px 11px}.toolbar{padding:5px 9px}.detail{padding:8px}}
 
 .tab:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}.view[hidden]{display:none!important}
+
+.sensitive-toggle{display:inline-flex;align-items:center;gap:5px;color:var(--muted,#9aa8bb);font-size:12px;white-space:nowrap}.sensitive-toggle input{width:16px;height:16px;accent-color:var(--accent);margin:0}

@@ -3,3 +3,17 @@
 
 /* DevTools-style element inspector enhancements */
 .element-inspector{overflow:auto}.inspector-edit{padding:9px 10px;border-bottom:1px solid var(--line);display:grid;gap:7px}.edit-heading{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:bold}.edit-row{display:grid;grid-template-columns:1fr 1fr auto;gap:5px}.edit-row input,.inspector-edit textarea{width:100%;min-width:0}.inspector-edit textarea{resize:vertical}.edit-actions{display:flex;gap:6px}.danger{color:#ff9a9a}.computed{margin:0;padding:8px 10px;max-height:190px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:#b8c9df;font:11px/1.5 ui-monospace,monospace}.box-model{padding:10px;color:#cbd6e5;font-size:11px;line-height:1.7}.box-model-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;text-align:center;padding:6px;border:1px solid #9a865a;background:#332e22}.box-model-grid .padding-box{border:1px solid #6d9c79;background:#24382b;padding:7px}.box-model-grid .content-box{border:1px solid #6e91c9;background:#22324b;padding:7px}.dom-label.hovered{outline:1px solid #f0c66e;background:#4a3c25}.dom-context{position:fixed;z-index:99;background:#202a38;border:1px solid #52627a;border-radius:6px;padding:4px;box-shadow:0 8px 24px #0009;display:grid;min-width:150px}.dom-context button{text-align:left;border:0;border-radius:3px;background:transparent}.dom-context button:hover{background:#354866}
+
+@media(max-width:650px){
+ .elements-layout{flex-direction:column;overflow:auto}
+ .dom-tree{flex:none;max-height:40vh;min-height:180px;border-right:0;border-bottom:1px solid var(--line);padding:8px}
+ .element-inspector{width:100%;min-width:0;max-height:none;overflow:visible}
+ .dom-node-row{min-height:38px;gap:5px}
+ .dom-toggle{width:34px;min-height:36px;font-size:15px}
+ .dom-label{min-height:36px;padding:7px 6px;font-size:12px}
+ .edit-row{grid-template-columns:1fr;gap:7px}
+ .edit-row input,.inspector-edit textarea{min-height:42px;font-size:16px}
+ .inspector-edit button,.edit-actions button,.dom-context button{min-height:44px}
+ .dom-context{min-width:190px}
+ .element-tools button{min-height:40px}
+}

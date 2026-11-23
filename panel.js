@@ -57,7 +57,7 @@ function renderDomTree() {
  const query = ($("dom-filter").value||"").toLowerCase();
  domTree.replaceChildren();
  const makeNode = node => {
-  const wrap=document.createElement("div"); wrap.className="dom-node";
+  const wrap=document.createElement("div"); wrap.className="dom-node"; wrap.__domNode=node;
   const row=document.createElement("div"); row.className="dom-node-row";
   const hasChildren=node.children&&node.children.length;
   const toggle=document.createElement("button"); toggle.className="dom-toggle"; toggle.textContent=hasChildren?"▾":"·"; toggle.disabled=!hasChildren;
@@ -123,7 +123,7 @@ function inspectDomNode(path) {
  evaluate(code,r=>{
   $("element-result").textContent=JSON.stringify(r,null,2);
   $("computed-result").textContent=r?.computed?Object.entries(r.computed).map(([k,v])=>k+": "+v).join("\n"):"No computed styles available.";
-  if(r?.box){const b=r.box,rect=r.rect||{};$("box-model").innerHTML="<div class='box-model-grid'><div>Margin<br>"+[b["margin-top"],b["margin-right"],b["margin-bottom"],b["margin-left"]].join(" / ")+"</div><div class='padding-box'>Padding<br>"+[b["padding-top"],b["padding-right"],b["padding-bottom"],b["padding-left"]].join(" / ")+"<div class='content-box'>Content<br>"+(rect.width||b.width)+" × "+(rect.height||b.height)+"</div></div><div>Border<br>"+[b["border-top-width"],b["border-right-width"],b["border-bottom-width"],b["border-left-width"]].join(" / ")+"</div></div><div>"+(b["box-sizing"]||"")+"</div>";}
+  if(r?.box){const b=r.box,rect=r.rect||{};$("box-model").textContent="Margin: "+[b["margin-top"],b["margin-right"],b["margin-bottom"],b["margin-left"]].join(" / ")+"\nBorder: "+[b["border-top-width"],b["border-right-width"],b["border-bottom-width"],b["border-left-width"]].join(" / ")+"\nPadding: "+[b["padding-top"],b["padding-right"],b["padding-bottom"],b["padding-left"]].join(" / ")+"\nContent: "+(rect.width||b.width)+" × "+(rect.height||b.height)+"\nBox sizing: "+(b["box-sizing"]||"");}
   else $("box-model").textContent="No element selected";
   const attrs=r?.attributes||[];const cls=attrs.find(a=>a.name==="class");
   $("attr-name").value=cls?"class":(attrs[0]?.name||"");$("attr-value").value=attrs.find(a=>a.name===$("attr-name").value)?.value||"";

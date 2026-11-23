@@ -45,7 +45,7 @@ let domRefreshTimer = null, domSnapshot = [], selectedDomPath = null, domNodeCou
 const domTree = $("dom-tree");
 const domEscape = value => String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function readDomTree() {
- const code = `(()=>{let count=0,truncated=false;const maxNodes=50000;const walk=(node,path,depth)=>{count++;const item={type:node.nodeType,name:node.nodeType===1?node.tagName.toLowerCase():node.nodeType===3?"#text":node.nodeType===8?"#comment":node.nodeType===10?"<!doctype>":"#document",path,depth,text:node.nodeType===3?(node.nodeValue||"").trim().slice(0,180):"",attrs:node.nodeType===1?Array.from(node.attributes).map(a=>[a.name,a.value]):[],children:[],truncated:false};if(node.childNodes){for(let i=0;i<node.childNodes.length;i++){if(count>=maxNodes){item.truncated=true;truncated=true;break;}const child=node.childNodes[i];if([1,3,8,10].includes(child.nodeType))item.children.push(walk(child,path.concat(i),depth+1));}}return item;};const root=walk(document,[],0);return {tree:root,nodeCount:count,truncated}})()`;
+ const code = `(()=>{let count=0,truncated=false;const maxNodes=50000;const walk=(node,path,depth)=>{count++;const item={type:node.nodeType,name:node.nodeType===1?node.tagName.toLowerCase():node.nodeType===3?"#text":node.nodeType===8?"#comment":node.nodeType===10?"<!doctype>":"#document",path,depth,text:node.nodeType===3?(node.nodeValue||"").trim().slice(0,500):node.nodeType===8?(node.nodeValue||"").trim().slice(0,300):"",attrs:node.nodeType===1?Array.from(node.attributes).map(a=>[a.name,a.value]):[],children:[],truncated:false};if(node.childNodes){for(let i=0;i<node.childNodes.length;i++){if(count>=maxNodes){item.truncated=true;truncated=true;break;}const child=node.childNodes[i];if([1,3,8,10].includes(child.nodeType))item.children.push(walk(child,path.concat(i),depth+1));}}return item;};const root=walk(document,[],0);return {tree:root,nodeCount:count,truncated}})()`;
  evaluate(code, result => {
   if (!result || result.error) { domTree.textContent = result?.error || "Unable to inspect this page."; return; }
   domSnapshot = result.tree || result; domNodeCount=result.nodeCount||0; domWasTruncated=!!result.truncated; renderDomTree();
@@ -55,14 +55,21 @@ function renderDomTree() {
  const query = ($("dom-filter").value||"").toLowerCase();
  domTree.replaceChildren();
  const makeNode = node => {
-  const wrap=document.createElement("div"); wrap.className="dom-node"; wrap.__domNode=node; wrap.__domNode=node;
+  const wrap=document.createElement("div"); wrap.className="dom-node"; wrap.__domNode=node;
   const row=document.createElement("div"); row.className="dom-node-row";
   const hasChildren=node.children&&node.children.length;
-  const initiallyExpanded=node.depth<2 || (node.name==="#document" && node.children?.some(c=>c.name==="html"));
+  const initiallyExpanded=node.depth<3;
   const toggle=document.createElement("button"); toggle.className="dom-toggle"; toggle.textContent=hasChildren?(initiallyExpanded?"▾":"▸"):"·"; toggle.disabled=!hasChildren;
   const label=document.createElement("button"); label.className="dom-label"+(JSON.stringify(node.path)===JSON.stringify(selectedDomPath)?" selected":"");
   const id=(node.attrs||[]).find(a=>a[0]==="id"), cls=(node.attrs||[]).find(a=>a[0]==="class");
-  label.innerHTML=node.type===3?"<span class='dom-text'>"+domEscape("#text "+node.text)+"</span>":"<span class='dom-tag'>&lt;"+domEscape(node.name)+"&gt;</span>"+(id?" <span class='dom-id'>#"+domEscape(id[1])+"</span>":"")+(cls?" <span class='dom-class'>."+domEscape(cls[1].trim().split(/\\s+/).slice(0,3).join("."))+"</span>":"");
+  if(node.type===3){label.innerHTML='<span class="dom-text">'+domEscape(JSON.stringify(node.text))+'</span>';}
+  else if(node.type===8){label.innerHTML='<span class="dom-comment">&lt;!-- '+domEscape(node.text)+' --&gt;</span>';}
+  else if(node.type===10){label.innerHTML='<span class="dom-doctype">&lt;!DOCTYPE html&gt;</span>';}
+  else if(node.type===9){label.innerHTML='<span class="dom-special">#document</span>';}
+  else {
+   const attrs=(node.attrs||[]).map(([k,v])=>'<span class="dom-attr-name">'+domEscape(k)+'</span>=<span class="dom-attr-value">&quot;'+domEscape(v)+'&quot;</span>').join(' ');
+   label.innerHTML='<span class="dom-bracket">&lt;</span><span class="dom-tag">'+domEscape(node.name)+'</span>'+(attrs?' '+attrs:'')+(hasChildren?' <span class="dom-bracket">&gt;</span>':' <span class="dom-bracket">/&gt;</span>');
+  }
   label.onclick=()=>{selectedDomPath=node.path;inspectDomNode(node.path);renderDomTree();};
   toggle.onclick=()=>{const children=wrap.querySelector(":scope > .dom-children");if(children){children.hidden=!children.hidden;toggle.textContent=children.hidden?"▸":"▾";}};
   row.append(toggle,label);wrap.append(row);
@@ -119,7 +126,7 @@ function inspectDomNode(path) {
  selectedPathCode();
  selectedNodeInfo=locateSnapshotNode(domSnapshot,path);
  const p=JSON.stringify(path);
- const code="(()=>{let n=document.documentElement;for(const i of "+p+")n=n&&n.childNodes[i];if(!n)return null;const r=n.nodeType===1?n.getBoundingClientRect():null,s=n.nodeType===1?getComputedStyle(n):null;const pick=(o,keys)=>Object.fromEntries(keys.map(k=>[k,o.getPropertyValue(k)]));return {nodeType:n.nodeType,nodeName:n.nodeName,text:n.nodeType===3?n.nodeValue:n.textContent?.slice(0,2000),outerHTML:n.nodeType===1?n.outerHTML.slice(0,12000):null,attributes:n.nodeType===1?Array.from(n.attributes).map(a=>({name:a.name,value:a.value})):[],children:n.childNodes?.length||0,rect:r?{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)}:null,computed:s?pick(s,['display','position','width','height','color','background-color','font-family','font-size','font-weight','line-height','margin-top','margin-right','margin-bottom','margin-left','padding-top','padding-right','padding-bottom','padding-left','border-radius','overflow','z-index']):null,box:s?pick(s,['margin-top','margin-right','margin-bottom','margin-left','border-top-width','border-right-width','border-bottom-width','border-left-width','padding-top','padding-right','padding-bottom','padding-left','width','height','box-sizing']):null}})()";
+ const code="(()=>{let n=document;for(const i of "+p+")n=n&&n.childNodes[i];if(!n)return null;const r=n.nodeType===1?n.getBoundingClientRect():null,s=n.nodeType===1?getComputedStyle(n):null;const pick=(o,keys)=>Object.fromEntries(keys.map(k=>[k,o.getPropertyValue(k)]));return {nodeType:n.nodeType,nodeName:n.nodeName,text:n.nodeType===3?n.nodeValue:n.textContent?.slice(0,2000),outerHTML:n.nodeType===1?n.outerHTML.slice(0,12000):null,attributes:n.nodeType===1?Array.from(n.attributes).map(a=>({name:a.name,value:a.value})):[],children:n.childNodes?.length||0,rect:r?{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)}:null,computed:s?pick(s,['display','position','width','height','color','background-color','font-family','font-size','font-weight','line-height','margin-top','margin-right','margin-bottom','margin-left','padding-top','padding-right','padding-bottom','padding-left','border-radius','overflow','z-index']):null,box:s?pick(s,['margin-top','margin-right','margin-bottom','margin-left','border-top-width','border-right-width','border-bottom-width','border-left-width','padding-top','padding-right','padding-bottom','padding-left','width','height','box-sizing']):null}})()";
  evaluate(code,r=>{
   $("element-result").textContent=JSON.stringify(r,null,2);
   $("computed-result").textContent=r?.computed?Object.entries(r.computed).map(([k,v])=>k+": "+v).join("\n"):"No computed styles available.";

@@ -26,8 +26,6 @@ $("command").onsubmit=e=>{e.preventDefault();const code=$("expression").value.tr
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab,.view").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("view-"+b.dataset.tab).classList.add("active");if(b.dataset.tab==="storage")refreshStorage();if(b.dataset.tab==="info")refreshInfo();});
 function renderNetwork(){ $("network-count").textContent=requests.length;$("network-total").textContent=requests.length+" requests";const q=$("network-filter").value.toLowerCase();$("network-rows").replaceChildren();requests.filter(r=>(r.url||"").toLowerCase().includes(q)||(r.method||"").toLowerCase().includes(q)).forEach(r=>{const tr=document.createElement("tr");tr.innerHTML="<td>"+esc(r.method||"")+"</td><td>"+esc(r.status||"—")+"</td><td>"+esc(r.type||"")+"</td><td>"+esc(r.url||"")+"</td><td>"+esc((r.duration||0)+" ms")+"</td>";tr.onclick=()=>{$("network-detail").textContent=JSON.stringify(r,null,2);};$("network-rows").append(tr);});}
 $("network-filter").oninput=renderNetwork;$("network-clear").onclick=()=>{requests.length=0;renderNetwork();$("network-detail").textContent="Select a request to inspect its details.";};
-$("inspect-selector").onclick=()=>{const s=$("selector").value;evaluate("(()=>{try{return [...document.querySelectorAll("+JSON.stringify(s)+")].slice(0,100).map((e,i)=>({index:i,tag:e.tagName,id:e.id,classes:e.className,text:(e.innerText||e.textContent||'').slice(0,500),html:e.outerHTML.slice(0,2000),rect:(()=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()}))}catch(e){return {error:e.message}}})()",r=>$("element-result").textContent=JSON.stringify(r,null,2));};
-$("highlight").onclick=()=>evaluate("(()=>{document.querySelectorAll('[data-bc-highlight]').forEach(e=>{e.style.outline=e.dataset.bcOldOutline||'';delete e.dataset.bcHighlight;delete e.dataset.bcOldOutline});try{const e=document.querySelector("+JSON.stringify($("selector").value)+");if(!e)return 'No match';e.dataset.bcOldOutline=e.style.outline;e.dataset.bcHighlight='1';e.style.outline='3px solid #ff4d8d';return e.tagName+' highlighted'}catch(e){return e.message}})()",r=>addConsole("info",[r]));
 document.querySelectorAll("[data-store]").forEach(b=>b.onclick=()=>{storeType=b.dataset.store;document.querySelectorAll("[data-store]").forEach(x=>x.classList.toggle("active",x===b));refreshStorage();});
 function refreshStorage(){evaluate("(()=>{const t="+JSON.stringify(storeType)+";if(t==='cookies')return document.cookie.split(';').filter(Boolean).map(x=>{const i=x.indexOf('=');return {key:x.slice(0,i).trim(),value:x.slice(i+1).trim()}});const s=window[t];return Object.keys(s).map(key=>({key,value:s.getItem(key)}))})()",r=>{const root=$("storage-rows");root.replaceChildren();if(r&&r.error){root.textContent=r.error;return;} (r||[]).forEach(item=>{const row=document.createElement("div");row.className="storage-row";const k=document.createElement("code");k.textContent=item.key;const v=document.createElement("span");v.textContent=item.value;const del=document.createElement("button");del.textContent="Delete";del.onclick=()=>evaluate(storeType==="cookies"?"document.cookie="+JSON.stringify(item.key+"=; Max-Age=0; path=/"):"window["+JSON.stringify(storeType)+"].removeItem("+JSON.stringify(item.key)+")",refreshStorage);row.append(k,v,del);root.append(row);});});}
 $("storage-refresh").onclick=refreshStorage;$("storage-save").onclick=()=>{const k=$("storage-key").value,v=$("storage-value").value;if(!k)return;const code=storeType==="cookies"?"document.cookie="+JSON.stringify(k+"="+v+"; path=/; SameSite=Lax"):"window["+JSON.stringify(storeType)+"].setItem("+JSON.stringify(k)+","+JSON.stringify(v)+")";evaluate(code,refreshStorage);};
@@ -43,14 +41,14 @@ chrome.devtools.network.onNavigated.addListener(()=>{if(!preserve){entries.lengt
 loadSnippets();
 
 // Live Elements panel: a DOM snapshot is refreshed while this tab is visible.
-let domRefreshTimer = null, domSnapshot = [], selectedDomPath = null;
+let domRefreshTimer = null, domSnapshot = [], selectedDomPath = null, domNodeCount = 0, domWasTruncated = false;
 const domTree = $("dom-tree");
 const domEscape = value => String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function readDomTree() {
- const code = `(()=>{const walk=(node,path,depth)=>{const item={type:node.nodeType, name:node.nodeType===1?node.tagName.toLowerCase():node.nodeType===3?"#text":node.nodeType===8?"#comment":"#document", path, text:node.nodeType===3?(node.nodeValue||"").trim().slice(0,120):"", attrs:node.nodeType===1?Array.from(node.attributes).slice(0,40).map(a=>[a.name,a.value]):[], children:[]};if(depth<7&&node.childNodes){for(let i=0;i<Math.min(node.childNodes.length,150);i++){const child=node.childNodes[i];if(child.nodeType===1||child.nodeType===3||child.nodeType===8)item.children.push(walk(child,path.concat(i),depth+1));}}return item;};return walk(document.documentElement,[],0)})()`;
+ const code = `(()=>{let count=0;const maxNodes=50000;const walk=(node,path,depth)=>{count++;const item={type:node.nodeType,name:node.nodeType===1?node.tagName.toLowerCase():node.nodeType===3?"#text":node.nodeType===8?"#comment":node.nodeType===10?"<!doctype>":"#document",path,depth,text:node.nodeType===3?(node.nodeValue||"").trim().slice(0,180):"",attrs:node.nodeType===1?Array.from(node.attributes).map(a=>[a.name,a.value]):[],children:[],truncated:false};if(node.childNodes){for(let i=0;i<node.childNodes.length;i++){if(count>=maxNodes){item.truncated=true;break;}const child=node.childNodes[i];if([1,3,8,10].includes(child.nodeType))item.children.push(walk(child,path.concat(i),depth+1));}}return item;};const root=walk(document,[],0);return {tree:root,nodeCount:count,truncated:root.truncated}})()`;
  evaluate(code, result => {
   if (!result || result.error) { domTree.textContent = result?.error || "Unable to inspect this page."; return; }
-  domSnapshot = result; renderDomTree();
+  domSnapshot = result.tree || result; domNodeCount=result.nodeCount||0; domWasTruncated=!!result.truncated; renderDomTree();
  });
 }
 function renderDomTree() {
@@ -60,20 +58,22 @@ function renderDomTree() {
   const wrap=document.createElement("div"); wrap.className="dom-node"; wrap.__domNode=node; wrap.__domNode=node;
   const row=document.createElement("div"); row.className="dom-node-row";
   const hasChildren=node.children&&node.children.length;
-  const toggle=document.createElement("button"); toggle.className="dom-toggle"; toggle.textContent=hasChildren?"▾":"·"; toggle.disabled=!hasChildren;
+  const initiallyExpanded=node.depth<2 || (node.name==="#document" && node.children?.some(c=>c.name==="html"));
+  const toggle=document.createElement("button"); toggle.className="dom-toggle"; toggle.textContent=hasChildren?(initiallyExpanded?"▾":"▸"):"·"; toggle.disabled=!hasChildren;
   const label=document.createElement("button"); label.className="dom-label"+(JSON.stringify(node.path)===JSON.stringify(selectedDomPath)?" selected":"");
   const id=(node.attrs||[]).find(a=>a[0]==="id"), cls=(node.attrs||[]).find(a=>a[0]==="class");
   label.innerHTML=node.type===3?"<span class='dom-text'>"+domEscape("#text "+node.text)+"</span>":"<span class='dom-tag'>&lt;"+domEscape(node.name)+"&gt;</span>"+(id?" <span class='dom-id'>#"+domEscape(id[1])+"</span>":"")+(cls?" <span class='dom-class'>."+domEscape(cls[1].trim().split(/\\s+/).slice(0,3).join("."))+"</span>":"");
   label.onclick=()=>{selectedDomPath=node.path;inspectDomNode(node.path);renderDomTree();};
   toggle.onclick=()=>{const children=wrap.querySelector(":scope > .dom-children");if(children){children.hidden=!children.hidden;toggle.textContent=children.hidden?"▸":"▾";}};
   row.append(toggle,label);wrap.append(row);
-  if(hasChildren){const children=document.createElement("div");children.className="dom-children";node.children.forEach(child=>{const childEl=makeNode(child);if(query&&!JSON.stringify(child).toLowerCase().includes(query))childEl.hidden=true;children.append(childEl);});wrap.append(children);}
+  if(hasChildren){const children=document.createElement("div");children.className="dom-children";children.hidden=!initiallyExpanded;node.children.forEach(child=>{const childEl=makeNode(child);if(query&&!JSON.stringify(child).toLowerCase().includes(query))childEl.hidden=true;children.append(childEl);});wrap.append(children);}
+  if(node.truncated){const note=document.createElement("span");note.className="dom-truncated";note.textContent="… node limit reached";wrap.append(note);}
   return wrap;
  };
  if(!domSnapshot){domTree.textContent="Waiting for page DOM…";return;}
  domTree.append(makeNode(domSnapshot));
  if(query){domTree.querySelectorAll(".dom-node").forEach(el=>{if(el.textContent.toLowerCase().includes(query)){el.hidden=false;let p=el.parentElement;while(p&&p!==domTree){if(p.classList.contains("dom-node"))p.hidden=false;p=p.parentElement;}}});}
- $("dom-status").textContent="Updated "+new Date().toLocaleTimeString();
+ $("dom-status").textContent=domNodeCount.toLocaleString()+" DOM nodes · Updated "+new Date().toLocaleTimeString()+(domWasTruncated?" · display limit reached":"");
 }
 function inspectDomNode(path) {
  const pathLiteral=JSON.stringify(path);
@@ -91,7 +91,7 @@ const selectedPathCode = () => JSON.stringify(selectedNodeInfo?.path || []);
 function evalNodeAction(expression, done=()=>{}) { evaluate(expression, result => { done(result); readDomTree(); }); }
 function nodeAtPath(path) {
  const p=JSON.stringify(path);
- return "(()=>{let n=document.documentElement;for(const i of "+p+")n=n&&n.childNodes[i];return n})()";
+ return "(()=>{let n=document;for(const i of "+p+")n=n&&n.childNodes[i];return n})()";
 }
 function showNodeContext(path, x, y) {
  selectedDomPath=path;

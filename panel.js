@@ -57,7 +57,7 @@ function renderDomTree() {
  const query = ($("dom-filter").value||"").toLowerCase();
  domTree.replaceChildren();
  const makeNode = node => {
-  const wrap=document.createElement("div"); wrap.className="dom-node"; wrap.__domNode=node;
+  const wrap=document.createElement("div"); wrap.className="dom-node"; wrap.__domNode=node; wrap.__domNode=node;
   const row=document.createElement("div"); row.className="dom-node-row";
   const hasChildren=node.children&&node.children.length;
   const toggle=document.createElement("button"); toggle.className="dom-toggle"; toggle.textContent=hasChildren?"▾":"·"; toggle.disabled=!hasChildren;
@@ -163,14 +163,4 @@ renderDomTree=function(){
   label.addEventListener("click",e=>{if(holdTriggered){e.preventDefault();e.stopImmediatePropagation();holdTriggered=false;}},true);
  });
 };
-function findSnapshotByLabel(wrap){
- const selected=wrap.querySelector(":scope > .dom-node-row > .dom-label");
- if(!selected)return null;
- const all=domTree.querySelectorAll(".dom-label");
- const labelIndex=Array.from(all).indexOf(selected);
- const pathFromSelected=labelIndex;
- // Resolve from rendered tree using the associated closure map populated below.
- return selected.__domNode || null;
-}
-// Wrap node creation to retain node metadata for touch/context actions.
-const previousMakeDomTree=renderDomTree;
+function findSnapshotByLabel(wrap){ return wrap.__domNode || null; }

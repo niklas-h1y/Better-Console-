@@ -41,3 +41,45 @@ $("snippet-run").onclick=()=>evaluate($("snippet-code").value,r=>addConsole(r&&r
 $("snippet-delete").onclick=()=>{const i=Number($("snippet-list").value);if(!Number.isInteger(i)||$("snippet-list").value==="")return;chrome.storage.local.get([snippetsKey],o=>{const a=o[snippetsKey]||[];a.splice(i,1);chrome.storage.local.set({[snippetsKey]:a},loadSnippets);});};
 chrome.devtools.network.onNavigated.addListener(()=>{if(!preserve){entries.length=0;requests.length=0;renderConsole();renderNetwork();}});
 loadSnippets();
+
+// Live Elements panel: a DOM snapshot is refreshed while this tab is visible.
+let domRefreshTimer = null, domSnapshot = [], selectedDomPath = null;
+const domTree = $("dom-tree");
+const domEscape = value => String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function readDomTree() {
+ const code = `(()=>{const walk=(node,path,depth)=>{const item={type:node.nodeType, name:node.nodeType===1?node.tagName.toLowerCase():node.nodeType===3?"#text":node.nodeType===8?"#comment":"#document", path, text:node.nodeType===3?(node.nodeValue||"").trim().slice(0,120):"", attrs:node.nodeType===1?Array.from(node.attributes).slice(0,40).map(a=>[a.name,a.value]):[], children:[]};if(depth<7&&node.childNodes){for(let i=0;i<Math.min(node.childNodes.length,150);i++){const child=node.childNodes[i];if(child.nodeType===1||child.nodeType===3||child.nodeType===8)item.children.push(walk(child,path.concat(i),depth+1));}}return item;};return walk(document.documentElement,[],0)})()`;
+ evaluate(code, result => {
+  if (!result || result.error) { domTree.textContent = result?.error || "Unable to inspect this page."; return; }
+  domSnapshot = result; renderDomTree();
+ });
+}
+function renderDomTree() {
+ const query = ($("dom-filter").value||"").toLowerCase();
+ domTree.replaceChildren();
+ const makeNode = node => {
+  const wrap=document.createElement("div"); wrap.className="dom-node";
+  const row=document.createElement("div"); row.className="dom-node-row";
+  const hasChildren=node.children&&node.children.length;
+  const toggle=document.createElement("button"); toggle.className="dom-toggle"; toggle.textContent=hasChildren?"▾":"·"; toggle.disabled=!hasChildren;
+  const label=document.createElement("button"); label.className="dom-label"+(JSON.stringify(node.path)===JSON.stringify(selectedDomPath)?" selected":"");
+  const id=(node.attrs||[]).find(a=>a[0]==="id"), cls=(node.attrs||[]).find(a=>a[0]==="class");
+  label.innerHTML=node.type===3?"<span class='dom-text'>"+domEscape("#text "+node.text)+"</span>":"<span class='dom-tag'>&lt;"+domEscape(node.name)+"&gt;</span>"+(id?" <span class='dom-id'>#"+domEscape(id[1])+"</span>":"")+(cls?" <span class='dom-class'>."+domEscape(cls[1].trim().split(/\\s+/).slice(0,3).join("."))+"</span>":"");
+  label.onclick=()=>{selectedDomPath=node.path;inspectDomNode(node.path);renderDomTree();};
+  toggle.onclick=()=>{const children=wrap.querySelector(":scope > .dom-children");if(children){children.hidden=!children.hidden;toggle.textContent=children.hidden?"▸":"▾";}};
+  row.append(toggle,label);wrap.append(row);
+  if(hasChildren){const children=document.createElement("div");children.className="dom-children";node.children.forEach(child=>{const childEl=makeNode(child);if(query&&!JSON.stringify(child).toLowerCase().includes(query))childEl.hidden=true;children.append(childEl);});wrap.append(children);}
+  return wrap;
+ };
+ if(!domSnapshot){domTree.textContent="Waiting for page DOM…";return;}
+ domTree.append(makeNode(domSnapshot));
+ if(query){domTree.querySelectorAll(".dom-node").forEach(el=>{if(el.textContent.toLowerCase().includes(query)){el.hidden=false;let p=el.parentElement;while(p&&p!==domTree){if(p.classList.contains("dom-node"))p.hidden=false;p=p.parentElement;}}});}
+ $("dom-status").textContent="Updated "+new Date().toLocaleTimeString();
+}
+function inspectDomNode(path) {
+ const pathLiteral=JSON.stringify(path);
+ evaluate("(()=>{let n=document.documentElement;for(const i of "+pathLiteral+")n=n&&n.childNodes[i];if(!n)return null;const r=n.nodeType===1?n.getBoundingClientRect():null;return {nodeType:n.nodeType,nodeName:n.nodeName, text:n.nodeType===3?n.nodeValue:n.textContent?.slice(0,2000), outerHTML:n.nodeType===1?n.outerHTML.slice(0,12000):null, attributes:n.nodeType===1?Array.from(n.attributes).map(a=>({name:a.name,value:a.value})):[], children:n.childNodes?.length||0, rect:r?{x:r.x,y:r.y,width:r.width,height:r.height}:null}})()",r=>$("element-result").textContent=JSON.stringify(r,null,2));
+}
+$("dom-refresh").onclick=readDomTree;
+$("dom-filter").oninput=renderDomTree;
+const originalTabClick = document.querySelector('[data-tab="elements"]');
+if(originalTabClick) originalTabClick.addEventListener("click",()=>{readDomTree();if(domRefreshTimer)clearInterval(domRefreshTimer);domRefreshTimer=setInterval(()=>{if($("view-elements").classList.contains("active"))readDomTree();},1500);});

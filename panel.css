@@ -17,3 +17,6 @@
  .dom-context{min-width:190px}
  .element-tools button{min-height:40px}
 }
+
+/* Chrome DevTools-like DOM markup */
+.dom-label{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre;}.dom-bracket{color:#aab4c3}.dom-attr-name{color:#9dbbff}.dom-attr-value{color:#c99a78}.dom-comment{color:#7f9b83}.dom-doctype,.dom-special{color:#c5a4e8}.dom-text{color:#d6c18b}.dom-node-row{width:max-content;min-width:100%;}

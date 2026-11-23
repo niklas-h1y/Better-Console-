@@ -83,3 +83,94 @@ $("dom-refresh").onclick=readDomTree;
 $("dom-filter").oninput=renderDomTree;
 const originalTabClick = document.querySelector('[data-tab="elements"]');
 if(originalTabClick) originalTabClick.addEventListener("click",()=>{readDomTree();if(domRefreshTimer)clearInterval(domRefreshTimer);domRefreshTimer=setInterval(()=>{if($("view-elements").classList.contains("active"))readDomTree();},1500);});
+
+
+// Enhanced touch-first Elements inspector.
+let selectedNodeInfo = null, holdTimer = null, holdTriggered = false, contextMenuEl = null;
+const selectedPathCode = () => JSON.stringify(selectedNodeInfo?.path || []);
+function evalNodeAction(expression, done=()=>{}) { evaluate(expression, result => { done(result); readDomTree(); }); }
+function nodeAtPath(path) {
+ const p=JSON.stringify(path);
+ return "(()=>{let n=document.documentElement;for(const i of "+p+")n=n&&n.childNodes[i];return n})()";
+}
+function showNodeContext(path, x, y) {
+ selectedDomPath=path;
+ const node=locateSnapshotNode(domSnapshot,path);
+ if(node){selectedNodeInfo=node;inspectDomNode(path);renderDomTree();}
+ if(contextMenuEl)contextMenuEl.remove();
+ const menu=document.createElement("div");menu.className="dom-context";
+ const actions=[
+  ["Inspect",()=>inspectDomNode(path)],
+  ["Highlight on page",()=>evalNodeAction("(()=>{const n="+nodeAtPath(path)+";if(!n||n.nodeType!==1)return 'Not an element';n.scrollIntoView({block:'center',behavior:'smooth'});const old=n.style.outline;n.style.outline='3px solid #ffbf47';setTimeout(()=>n.style.outline=old,1800);return 'Highlighted'})()")],
+  ["Scroll into view",()=>evalNodeAction("(()=>{const n="+nodeAtPath(path)+";if(n&&n.scrollIntoView)n.scrollIntoView({block:'center',behavior:'smooth'});return 'Scrolled'})()")],
+  ["Refresh DOM",()=>readDomTree()]
+ ];
+ actions.forEach(([label,fn])=>{const b=document.createElement("button");b.type="button";b.textContent=label;b.onclick=()=>{menu.remove();contextMenuEl=null;fn();};menu.append(b);});
+ document.body.append(menu);contextMenuEl=menu;
+ const rect=menu.getBoundingClientRect();menu.style.left=Math.max(6,Math.min(x,innerWidth-rect.width-6))+"px";menu.style.top=Math.max(6,Math.min(y,innerHeight-rect.height-6))+"px";
+ setTimeout(()=>{const close=e=>{if(!menu.contains(e.target)){menu.remove();contextMenuEl=null;document.removeEventListener("pointerdown",close,true);}};document.addEventListener("pointerdown",close,true);},0);
+}
+function locateSnapshotNode(root,path){let n=root;for(const i of path||[]){n=n?.children?.[i];if(!n)return null;}return n;}
+function previewNode(path,on=true){
+ const p=JSON.stringify(path);
+ evaluate("(()=>{const n="+nodeAtPath(path)+";if(!n||n.nodeType!==1)return false; if("+on+"){if(!n.dataset.bcInspectorOldOutline){n.dataset.bcInspectorOldOutline=n.style.outline||'__none__';}n.style.outline='2px solid #f0c66e';n.style.outlineOffset='1px';}else if(n.dataset.bcInspectorOldOutline!==undefined){n.style.outline=n.dataset.bcInspectorOldOutline==='__none__'?'':n.dataset.bcInspectorOldOutline;n.style.outlineOffset='';delete n.dataset.bcInspectorOldOutline;}return true})()");
+}
+function inspectDomNode(path) {
+ selectedPathCode();
+ selectedNodeInfo=locateSnapshotNode(domSnapshot,path);
+ const p=JSON.stringify(path);
+ const code="(()=>{let n=document.documentElement;for(const i of "+p+")n=n&&n.childNodes[i];if(!n)return null;const r=n.nodeType===1?n.getBoundingClientRect():null,s=n.nodeType===1?getComputedStyle(n):null;const pick=(o,keys)=>Object.fromEntries(keys.map(k=>[k,o.getPropertyValue(k)]));return {nodeType:n.nodeType,nodeName:n.nodeName,text:n.nodeType===3?n.nodeValue:n.textContent?.slice(0,2000),outerHTML:n.nodeType===1?n.outerHTML.slice(0,12000):null,attributes:n.nodeType===1?Array.from(n.attributes).map(a=>({name:a.name,value:a.value})):[],children:n.childNodes?.length||0,rect:r?{x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)}:null,computed:s?pick(s,['display','position','width','height','color','background-color','font-family','font-size','font-weight','line-height','margin-top','margin-right','margin-bottom','margin-left','padding-top','padding-right','padding-bottom','padding-left','border-radius','overflow','z-index']):null,box:s?pick(s,['margin-top','margin-right','margin-bottom','margin-left','border-top-width','border-right-width','border-bottom-width','border-left-width','padding-top','padding-right','padding-bottom','padding-left','width','height','box-sizing']):null}})()";
+ evaluate(code,r=>{
+  $("element-result").textContent=JSON.stringify(r,null,2);
+  $("computed-result").textContent=r?.computed?Object.entries(r.computed).map(([k,v])=>k+": "+v).join("\n"):"No computed styles available.";
+  if(r?.box){const b=r.box,rect=r.rect||{};$("box-model").innerHTML="<div class='box-model-grid'><div>Margin<br>"+[b["margin-top"],b["margin-right"],b["margin-bottom"],b["margin-left"]].join(" / ")+"</div><div class='padding-box'>Padding<br>"+[b["padding-top"],b["padding-right"],b["padding-bottom"],b["padding-left"]].join(" / ")+"<div class='content-box'>Content<br>"+(rect.width||b.width)+" × "+(rect.height||b.height)+"</div></div><div>Border<br>"+[b["border-top-width"],b["border-right-width"],b["border-bottom-width"],b["border-left-width"]].join(" / ")+"</div></div><div>"+(b["box-sizing"]||"")+"</div>";}
+  else $("box-model").textContent="No element selected";
+  const attrs=r?.attributes||[];const cls=attrs.find(a=>a.name==="class");
+  $("attr-name").value=cls?"class":(attrs[0]?.name||"");$("attr-value").value=attrs.find(a=>a.name===$("attr-name").value)?.value||"";
+  $("node-text").value=r?.nodeType===1?(r.text||""):(r?.text||"");
+ });
+}
+$("attr-apply").onclick=()=>{
+ const name=$("attr-name").value.trim(),value=$("attr-value").value;
+ if(!selectedDomPath||!name||!/^[A-Za-z_:][A-Za-z0-9_.:-]*$/.test(name)){addConsole("warn",["Enter a valid attribute name and select an element."]);return;}
+ evalNodeAction("(()=>{const n="+nodeAtPath(selectedDomPath)+";if(!n||n.nodeType!==1)return 'Select an element';n.setAttribute("+JSON.stringify(name)+","+JSON.stringify(value)+");return 'Attribute updated'})()",()=>inspectDomNode(selectedDomPath));
+};
+$("text-apply").onclick=()=>{
+ if(!selectedDomPath)return;
+ evalNodeAction("(()=>{const n="+nodeAtPath(selectedDomPath)+";if(!n)return 'Node not found';n.textContent="+JSON.stringify($("node-text").value)+";return 'Text updated'})()",()=>inspectDomNode(selectedDomPath));
+};
+$("node-remove").onclick=()=>{
+ if(!selectedDomPath||!confirm("Remove this node from the inspected page?"))return;
+ evalNodeAction("(()=>{const n="+nodeAtPath(selectedDomPath)+";if(!n||!n.parentNode)return 'Cannot remove node';n.remove();return 'Node removed'})()",()=>{$("element-result").textContent="Node removed.";});
+};
+const priorRenderDomTree=renderDomTree;
+renderDomTree=function(){
+ priorRenderDomTree();
+ domTree.querySelectorAll(".dom-label").forEach((label,index)=>{
+  const row=label.closest(".dom-node-row"),wrap=label.closest(".dom-node");
+  const pathNode=findSnapshotByLabel(wrap);
+  if(!pathNode)return;
+  label.onpointerenter=()=>previewNode(pathNode.path,true);
+  label.onpointerleave=()=>previewNode(pathNode.path,false);
+  label.onpointerdown=e=>{
+   if(e.pointerType==="mouse")return;
+   holdTriggered=false;clearTimeout(holdTimer);
+   holdTimer=setTimeout(()=>{holdTriggered=true;showNodeContext(pathNode.path,e.clientX||20,e.clientY||20);},550);
+  };
+  label.onpointerup=()=>clearTimeout(holdTimer);
+  label.onpointercancel=()=>clearTimeout(holdTimer);
+  label.oncontextmenu=e=>{e.preventDefault();showNodeContext(pathNode.path,e.clientX,e.clientY);};
+  label.addEventListener("click",e=>{if(holdTriggered){e.preventDefault();e.stopImmediatePropagation();holdTriggered=false;}},true);
+ });
+};
+function findSnapshotByLabel(wrap){
+ const selected=wrap.querySelector(":scope > .dom-node-row > .dom-label");
+ if(!selected)return null;
+ const all=domTree.querySelectorAll(".dom-label");
+ const labelIndex=Array.from(all).indexOf(selected);
+ const pathFromSelected=labelIndex;
+ // Resolve from rendered tree using the associated closure map populated below.
+ return selected.__domNode || null;
+}
+// Wrap node creation to retain node metadata for touch/context actions.
+const previousMakeDomTree=renderDomTree;
